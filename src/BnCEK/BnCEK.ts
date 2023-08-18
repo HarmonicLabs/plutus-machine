@@ -4,7 +4,6 @@ import { Pair } from "@harmoniclabs/pair";
 import { fromUtf8, toHex, toUtf8 } from "@harmoniclabs/uint8array-utils";
 import { isData, Data, DataConstr, DataMap, DataList, DataI, DataB, DataPair, dataToCbor, eqData } from "@harmoniclabs/plutus-data";
 import { ConstValue, isConstValueInt, UPLCTerm, ConstType, UPLCConst, constTypeEq, constT, ConstTyTag, ErrorUPLC, UPLCBuiltinTag, constPairTypeUtils, constListTypeUtils, constTypeToStirng } from "@harmoniclabs/uplc";
-import { isUint8Array } from "util/types";
 import { BuiltinCostsOf } from "../Machine/BuiltinCosts/BuiltinCosts";
 import { ExBudget } from "../Machine/ExBudget";
 import { PartialBuiltin } from "./PartialBuiltin";
@@ -23,7 +22,7 @@ function intToSize( n: bigint ): bigint
 
 function bsToSize( bs: ByteString | Uint8Array ): bigint
 {
-    const len = (isUint8Array( bs ) ? bs : bs.toBuffer()).length;
+    const len = (( bs instanceof Uint8Array ) ? bs : bs.toBuffer()).length;
     return len === 0 ?
         // TODO: Bug in cardano-node; to fix next hard fork
         BigInt(1) :
