@@ -218,10 +218,16 @@ function intBinOp( a: UPLCTerm, b: UPLCTerm , op: (a: bigint, b: bigint) => bigi
 {
     const ints = getInts( a, b );
     if( ints === undefined )
-    return new ErrorUPLC(`${fnName} :: invalid arguments`, { a, b });
+    return new ErrorUPLC(
+        `${fnName} :: invalid arguments`,
+        { a, b }
+    );
 
     const result = op( ints.a, ints.b);
-    if( result === undefined ) return new ErrorUPLC(`${fnName} :: operation error`, { a, b });
+    if( result === undefined ) return new ErrorUPLC(
+        `${fnName} :: operation error`, 
+        { a, b, ints_a: ints.a, ints_b: ints.b }
+    );
 
     return UPLCConst.int( result );
 }
@@ -369,7 +375,7 @@ export class BnCEK
             
             default:
                 // tag; // check that is of type 'never'
-                return new ErrorUPLC("unrecognized builtin tag");
+                return new ErrorUPLC("unrecognized builtin tag", { tag: bn.tag });
         }
     }
 
@@ -546,7 +552,7 @@ export class BnCEK
         if( ints === undefined )
         return new ErrorUPLC(
             "lessThanInteger :: not integers",
-            { a, b }
+            { a, b, ints }
         );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.lessThanInteger );
@@ -567,7 +573,7 @@ export class BnCEK
         if( ints === undefined )
         return new ErrorUPLC(
             "lessThanEqualInteger :: not integers",
-            { a, b }
+            { a, b, ints }
         );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.lessThanEqualInteger );
@@ -585,9 +591,9 @@ export class BnCEK
     appendByteString( a: UPLCTerm, b: UPLCTerm ): ConstOrErr
     {
         const _a = getBS( a );
-        if( _a === undefined ) return new ErrorUPLC("appendByteString :: not BS");
+        if( _a === undefined ) return new ErrorUPLC("appendByteString :: not BS", { a });
         const _b = getBS( b );
-        if(_b === undefined ) return new ErrorUPLC("appendByteString :: not BS");
+        if(_b === undefined ) return new ErrorUPLC("appendByteString :: not BS", { b });
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.appendByteString );
                 
@@ -604,11 +610,11 @@ export class BnCEK
     consByteString( a: UPLCTerm, b: UPLCTerm ): ConstOrErr
     {
         let _a = getInt( a );
-        if( _a === undefined ) return new ErrorUPLC("consByteString :: not Int");
+        if( _a === undefined ) return new ErrorUPLC("consByteString :: not Int", { a });
         _a = abs( _a ) % BigInt( 256 );
 
         const _b = getBS( b );
-        if(_b === undefined ) return new ErrorUPLC("consByteString :: not BS");
+        if(_b === undefined ) return new ErrorUPLC("consByteString :: not BS", { b });
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.consByteString );
                 
@@ -625,13 +631,13 @@ export class BnCEK
     sliceByteString( fromIdx: UPLCTerm, ofLength: UPLCTerm, bs: UPLCTerm ): ConstOrErr
     {
         const idx = getInt( fromIdx );
-        if( idx === undefined ) return new ErrorUPLC("sliceByteString :: not int");
+        if( idx === undefined ) return new ErrorUPLC("sliceByteString :: not int", { fromIdx });
 
         const length = getInt( ofLength );
-        if( length === undefined ) return new ErrorUPLC("sliceByteString :: not int");
+        if( length === undefined ) return new ErrorUPLC("sliceByteString :: not int", { ofLength });
 
         const _bs = getBS( bs );
-        if( _bs === undefined ) return new ErrorUPLC("sliceByteString :: not BS");
+        if( _bs === undefined ) return new ErrorUPLC("sliceByteString :: not BS", { bs });
 
         const i = idx < BigInt( 0 ) ? BigInt( 0 ) : idx;
 
@@ -667,7 +673,7 @@ export class BnCEK
     lengthOfByteString( bs: UPLCTerm ): ConstOrErr
     {
         const _bs = getBS( bs );
-        if( _bs === undefined ) return new ErrorUPLC("lengthOfByteString :: not BS");
+        if( _bs === undefined ) return new ErrorUPLC("lengthOfByteString :: not BS", { bs });
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.lengthOfByteString );
                 
@@ -683,14 +689,16 @@ export class BnCEK
     indexByteString( bs: UPLCTerm, idx: UPLCTerm ): ConstOrErr
     {
         const _bs = getBS( bs );
-        if( _bs === undefined ) return new ErrorUPLC("indexByteString :: not BS");
+        if( _bs === undefined ) return new ErrorUPLC("indexByteString :: not BS", { bs });
         
         const i = getInt( idx );
-        if( i === undefined || i >= _bs.toBuffer().length || i < BigInt( 0 ) ) return new ErrorUPLC("indexByteString :: not int");
+        if( i === undefined || i >= _bs.toBuffer().length || i < BigInt( 0 ) ) return new ErrorUPLC("indexByteString :: not int", { idx });
 
         const result = _bs.toBuffer().at( Number( i ) );
-        if( result === undefined ) return new ErrorUPLC("indexByteString :: out of bytestring length");
-
+        if( result === undefined ) return new ErrorUPLC(
+            "indexByteString :: out of bytestring length",
+            { bs_length: _bs.toBuffer().length, index: i }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.indexByteString );
                 
@@ -741,10 +749,16 @@ export class BnCEK
     lessThanByteString( a: UPLCTerm, b: UPLCTerm ): ConstOrErr
     {
         const _a = getBS( a );
-        if( _a === undefined ) return new ErrorUPLC("lessThanByteString :: not BS");
+        if( _a === undefined ) return new ErrorUPLC(
+            "lessThanByteString :: not BS",
+            { a }
+        );
         
         const _b = getBS( b );
-        if( _b === undefined ) return new ErrorUPLC("lessThanByteString :: not BS");
+        if( _b === undefined ) return new ErrorUPLC(
+            "lessThanByteString :: not BS",
+            { b }
+        );
 
         const aBytes = _a.toBuffer();
         const bBytes = _b.toBuffer();
@@ -776,10 +790,16 @@ export class BnCEK
     lessThanEqualsByteString( a: UPLCTerm, b: UPLCTerm ): ConstOrErr
     {
         const _a = getBS( a );
-        if( _a === undefined ) return new ErrorUPLC("lessThanEqualsByteString :: not BS");
+        if( _a === undefined ) return new ErrorUPLC(
+            "lessThanEqualsByteString :: not BS",
+            { a }
+        );
         
         const _b = getBS( b );
-        if( _b === undefined ) return new ErrorUPLC("lessThanEqualsByteString :: not BS");
+        if( _b === undefined ) return new ErrorUPLC(
+            "lessThanEqualsByteString :: not BS",
+            { b }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.lessThanEqualsByteString );
                 
@@ -800,7 +820,10 @@ export class BnCEK
     sha2_256( stuff: UPLCTerm ): ConstOrErr
     {
         const b = getBS( stuff );
-        if( b === undefined ) return new ErrorUPLC("sha2_256 :: not BS");
+        if( b === undefined ) return new ErrorUPLC(
+            "sha2_256 :: not BS",
+            { stuff }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.sha2_256 );
 
@@ -825,7 +848,10 @@ export class BnCEK
     sha3_256( stuff: UPLCTerm ): ConstOrErr
     {
         const b = getBS( stuff );
-        if( b === undefined ) return new ErrorUPLC("sha3_256 :: not BS");
+        if( b === undefined ) return new ErrorUPLC(
+            "sha3_256 :: not BS",
+            stuff
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.sha3_256 );
 
@@ -850,7 +876,10 @@ export class BnCEK
     blake2b_256( stuff: UPLCTerm ): ConstOrErr
     {
         const b = getBS( stuff );
-        if( b === undefined ) return new ErrorUPLC("blake2b_256 :: not BS");
+        if( b === undefined ) return new ErrorUPLC(
+            "blake2b_256 :: not BS",
+            { stuff }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.blake2b_256 );
 
@@ -871,18 +900,40 @@ export class BnCEK
     verifyEd25519Signature( key: UPLCTerm, message: UPLCTerm, signature: UPLCTerm ): ConstOrErr
     {
         const k = getBS( key );
-        if( k === undefined ) return new ErrorUPLC("verifyEd25519Signature :: key not BS");
+        if( k === undefined ) return new ErrorUPLC(
+            "verifyEd25519Signature :: key not BS",
+            { key }
+        );
         
         const kBytes = k.toBuffer();
-        if( kBytes.length !== 32 ) return new ErrorUPLC("sha2_verifyEd25519Signature256 :: wrong message length");
+        if( kBytes.length !== 32 ) return new ErrorUPLC(
+            "sha2_verifyEd25519Signature256 :: wrong message length",
+            {
+                kBytes,
+                kStr: k.toString()
+            }
+        );
 
         const m = getBS( message );
-        if( m === undefined ) return new ErrorUPLC("verifyEd25519Signature :: message not BS");
+        if( m === undefined ) return new ErrorUPLC(
+            "verifyEd25519Signature :: message not BS",
+            { message }
+        );
 
         const s = getBS( signature );
-        if( s === undefined ) return new ErrorUPLC("verifyEd25519Signature :: singature not BS");
+        if( s === undefined ) return new ErrorUPLC(
+            "verifyEd25519Signature :: singature not BS",
+            { signature }
+        );
         const sBytes = s.toBuffer();
-        if( sBytes.length !== 64 ) return new ErrorUPLC("sha2_verifyEd25519Signature256 :: wrong signature length");
+        if( sBytes.length !== 64 ) return new ErrorUPLC(
+            "sha2_verifyEd25519Signature256 :: wrong signature length",
+            {
+                signature_length: sBytes.length,
+                signatureHex: s.toString(),
+                signatureBytes: sBytes
+            }
+        );
 
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.verifyEd25519Signature );
@@ -902,10 +953,16 @@ export class BnCEK
     appendString( a: UPLCTerm, b: UPLCTerm ): ConstOrErr
     {
         const _a = getStr( a );
-        if( _a === undefined ) return new ErrorUPLC("not Str");
+        if( _a === undefined ) return new ErrorUPLC(
+            "appendString :: not Str",
+            { a }
+        );
         
         const _b = getStr( b );
-        if( _b === undefined ) return new ErrorUPLC("not Str");
+        if( _b === undefined ) return new ErrorUPLC(
+            "appendString :: not Str",
+            { b }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.appendString );
 
@@ -922,10 +979,18 @@ export class BnCEK
     equalsString( a: UPLCTerm, b: UPLCTerm ): ConstOrErr
     {
         const _a = getStr( a );
-        if( _a === undefined ) return new ErrorUPLC("not Str");
+        if( _a === undefined ) return new ErrorUPLC(
+            "equalsString :: not Str",
+            { a }
+        );
         
         const _b = getStr( b );
-        if( _b === undefined ) return new ErrorUPLC("not Str");
+        if( _b === undefined ) return new ErrorUPLC(
+            "equalsString :: not Str",
+            {
+                b
+            }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.equalsString );
 
@@ -942,7 +1007,10 @@ export class BnCEK
     encodeUtf8( a: UPLCTerm ): ConstOrErr
     {
         const _a = getStr( a );
-        if( _a === undefined ) return new ErrorUPLC("not Str");
+        if( _a === undefined ) return new ErrorUPLC(
+            "encodeUtf8 :: not Str",
+            { a }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.encodeUtf8 );
 
@@ -979,7 +1047,10 @@ export class BnCEK
     }
     ifThenElse( condition: UPLCTerm, caseTrue: ConstOrErr, caseFalse: ConstOrErr ): ConstOrErr
     {
-        if(! isConstOfType( condition, constT.bool ) ) return new ErrorUPLC("not a boolean");
+        if(! isConstOfType( condition, constT.bool ) ) return new ErrorUPLC(
+            "ifThenElse :: condition was not a boolean",
+            { condition }
+        );
         
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.ifThenElse );
 
@@ -993,7 +1064,10 @@ export class BnCEK
 
     chooseUnit( unit: UPLCTerm, b: UPLCTerm ): UPLCTerm
     {
-        if( !isConstOfType( unit, constT.unit ) ) return new ErrorUPLC("nota a unit");
+        if( !isConstOfType( unit, constT.unit ) ) return new ErrorUPLC(
+            "chooseUnit :: not a unit",
+            { unit }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.chooseUnit );
 
@@ -1025,7 +1099,10 @@ export class BnCEK
     fstPair( pair: UPLCTerm ): ConstOrErr
     {
         const p = getPair( pair );
-        if( p === undefined ) return new ErrorUPLC("not a pair");
+        if( p === undefined ) return new ErrorUPLC(
+            "fstPair :: not a pair",
+            { pair }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.fstPair );
 
@@ -1044,7 +1121,10 @@ export class BnCEK
     sndPair( pair: UPLCTerm ): ConstOrErr
     {
         const p = getPair( pair );
-        if( p === undefined ) return new ErrorUPLC("not a pair");
+        if( p === undefined ) return new ErrorUPLC(
+            "sndPair :: not a pair",
+            { pair }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.sndPair );
 
@@ -1063,7 +1143,10 @@ export class BnCEK
     chooseList( list: UPLCTerm, whateverA: UPLCTerm, whateverB: UPLCTerm ): UPLCTerm 
     {
         const l = getList( list );
-        if( l === undefined ) return new ErrorUPLC("chooseList :: not a list");
+        if( l === undefined ) return new ErrorUPLC(
+            "chooseList :: not a list",
+            { list }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.chooseList );
 
@@ -1095,7 +1178,10 @@ export class BnCEK
         );
 
         const l = getList( list );
-        if( l === undefined ) return new ErrorUPLC("mkCons :: not a list");
+        if( l === undefined ) return new ErrorUPLC(
+            "mkCons :: not a list",
+            { list }
+        );
 
         const value = elem.value;
 
@@ -1117,7 +1203,12 @@ export class BnCEK
     headList( list: UPLCTerm ): ConstOrErr 
     {
         const l = getList( list );
-        if( l === undefined || l.length === 0 ) return new ErrorUPLC(l === undefined ? "headList :: not a list" : "headList :: empty list passed to 'head'");
+        if( l === undefined || l.length === 0 ) return new ErrorUPLC(
+            l === undefined ? 
+            "headList :: not a list" : 
+            "headList :: empty list passed to 'head'",
+            { list }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.headList );
 
@@ -1138,7 +1229,9 @@ export class BnCEK
         const l = getList( list );
         if( l === undefined || l.length === 0 )
         return new ErrorUPLC(
-            l === undefined ? "tailList :: not a list" : "tailList :: empty list passed to 'tail'",
+            l === undefined ? 
+            "tailList :: not a list" : 
+            "tailList :: empty list passed to 'tail'",
             { list }
         );
 
@@ -1162,9 +1255,7 @@ export class BnCEK
         if( l === undefined ) 
         return new ErrorUPLC(
             "nullList :: not a list",
-            {
-                arg: list
-            }
+            { arg: list }
         );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.nullList );
@@ -1181,7 +1272,10 @@ export class BnCEK
     chooseData( data: UPLCTerm, constr: UPLCTerm, map: UPLCTerm, list: UPLCTerm, int: UPLCTerm, bs: UPLCTerm ): ConstOrErr
     {
         const d = getData( data );
-        if( d === undefined ) return new ErrorUPLC("not data");
+        if( d === undefined ) return new ErrorUPLC(
+            "chooseData :: not data",
+            { data }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.chooseData );
 
@@ -1198,17 +1292,30 @@ export class BnCEK
         if( d instanceof DataI ) return int;
         if( d instanceof DataB ) return bs;
 
-        return new ErrorUPLC("unrecognized data, possibly DataPair");
+        return new ErrorUPLC(
+            "unrecognized data, possibly DataPair",
+            { data, d }
+        );
     }
     constrData( idx: UPLCTerm, fields: UPLCTerm ): ConstOrErr
     {
         const i = getInt( idx );
-        if( i === undefined ) return new ErrorUPLC("constrData :: not int");
+        if( i === undefined ) return new ErrorUPLC(
+            "constrData :: not int",
+            { idx }
+        );
 
-        if( !constTypeEq( (fields as any).type, constT.listOf( constT.data ) ) ) return new ErrorUPLC("constrData :: passed fields are not a list of Data");
-        
         const _fields: Data[] | undefined = getList( fields ) as any;
-        if( _fields === undefined ) return new ErrorUPLC("constrData :: not a list");
+        if( _fields === undefined ) return new ErrorUPLC(
+            "constrData :: not a list",
+            { fields }
+        );
+
+        if( !constTypeEq( (fields as any).type, constT.listOf( constT.data ) ) )
+        return new ErrorUPLC(
+            "constrData :: passed fields are not a list of Data",
+            { fields, type: (fields as any)?.type }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.constrData );
 
@@ -1222,7 +1329,10 @@ export class BnCEK
 
         // assert we got a list of data
         // ( the type has been forced but not the value )
-        if( !_fields.every( field => isData( field ) ) ) return new ErrorUPLC("constrData :: some of the fields are not Data, mismatching type btw");
+        if( !_fields.every( field => isData( field ) ) ) return new ErrorUPLC(
+            "constrData :: some of the fields are not Data, mismatching UPLCConst type",
+            { _fields }
+        );
 
         return UPLCConst.data(
             new DataConstr( i, _fields )
@@ -1241,10 +1351,16 @@ export class BnCEK
                     )
                 )
             )
-        )) return new ErrorUPLC("not a const map");
+        )) return new ErrorUPLC(
+            "mapData :: not a map",
+            { listOfPair }
+        );
 
         const list: Pair<Data,Data>[] | undefined = getList( listOfPair ) as any ;
-        if( list === undefined ) return new ErrorUPLC("mapData :: not a list");
+        if( list === undefined ) return new ErrorUPLC(
+            "mapData :: not a list",
+            { listOfPair }
+        );
 
         // assert we got a list of pair of datas
         // ( the type has been forced but not the value )
@@ -1254,7 +1370,10 @@ export class BnCEK
                 isData( pair.fst ) &&
                 isData( pair.snd ) 
             )
-        ) return new ErrorUPLC("some elements are not a pair, mismatching const type btw");
+        ) return new ErrorUPLC(
+            "some elements are not a pair, mismatching const type",
+            { listOfPair, list}
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.mapData );
 
@@ -1284,17 +1403,21 @@ export class BnCEK
         ))
         return new ErrorUPLC(
             "listData :: not a list of data",
-            {
-                listOfData,
-            }
+            { listOfData }
         );
 
         const list: Data[] | undefined = getList( listOfData ) as any ;
-        if( list === undefined ) return new ErrorUPLC("listData :: not a list");
+        if( list === undefined ) return new ErrorUPLC(
+            "listData :: not a list",
+            { listOfData }
+        );
 
         // assert we got a list of data
         // ( the type has been forced but not the value )
-        if( !list.every( data => isData( data ) ) ) return new ErrorUPLC("some of the elements are not data, mismatching type btw");
+        if( !list.every( data => isData( data ) ) ) return new ErrorUPLC(
+            "some of the elements are not data, mismatching const type",
+            { listOfData }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.listData );
 
@@ -1359,7 +1482,10 @@ export class BnCEK
     unConstrData( data: UPLCTerm ): ConstOrErr
     {
         const d = getData( data );
-        if( d === undefined ) return new ErrorUPLC(`unConstrData :: not data; ${ data instanceof UPLCConst ? "UPLCConst type: " + constTypeToStirng(data.type) :""}`);
+        if( d === undefined ) return new ErrorUPLC(
+            `unConstrData :: not data; ${ data instanceof UPLCConst ? "UPLCConst type: " + constTypeToStirng(data.type) :""}`,
+            { data }
+        );
 
         if( !( d instanceof DataConstr ) )
         return new ErrorUPLC(
@@ -1386,9 +1512,15 @@ export class BnCEK
     unMapData( data: UPLCTerm ): ConstOrErr
     {
         const d = getData( data );
-        if( d === undefined ) return new ErrorUPLC("not data; unMapData");
+        if( d === undefined ) return new ErrorUPLC(
+            "unMapData :: not data",
+            { data }
+        );
 
-        if( !( d instanceof DataMap ) ) return new ErrorUPLC("not a data map");
+        if( !( d instanceof DataMap ) ) return new ErrorUPLC(
+            "unMapData :: not a data map",
+            { data }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.unMapData );
 
@@ -1428,13 +1560,14 @@ export class BnCEK
         const d = getData( data );
         if( d === undefined )
             return new ErrorUPLC(
-                "not data; unIData",
-                {
-                    data
-                }
+                "unIData :: not data value",
+                { data }
             );
 
-        if( !( d instanceof DataI ) ) return new ErrorUPLC("not a data integer");
+        if( !( d instanceof DataI ) ) return new ErrorUPLC(
+            "unIData :: not a data integer",
+            { data: d }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.unIData );
 
@@ -1452,13 +1585,17 @@ export class BnCEK
         const d = getData( data );
         if( d === undefined )
             return new ErrorUPLC(
-                "not data; unBData",
-                {
-                    data,
-                }
+                "unBData :: not data value",
+                { data }
             );
 
-        if( !( d instanceof DataB ) ) return new ErrorUPLC("not a data BS", {UPLCTerm: ((data as UPLCConst).value as DataConstr).constr });
+        if( !( d instanceof DataB ) ) return new ErrorUPLC(
+            "unBData :: not a data BS",
+            {
+                data: d, 
+                term: ((data as UPLCConst)?.value as DataConstr)?.constr
+            }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.unBData );
 
@@ -1474,9 +1611,15 @@ export class BnCEK
     equalsData( a: UPLCTerm, b: UPLCTerm ): ConstOrErr
     {
         const _a = getData( a );
-        if( _a === undefined ) return new ErrorUPLC("not data; equalsData <first argument>");
+        if( _a === undefined ) return new ErrorUPLC(
+            "equalsData :: not data; equalsData <first argument>",
+            { a }
+        );
         const _b = getData( b );
-        if( _b === undefined ) return new ErrorUPLC("not data; equalsData <second argument>");
+        if( _b === undefined ) return new ErrorUPLC(
+            "equalsData :: not data; equalsData <second argument>",
+            { b }
+        );
         
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.equalsData );
 
@@ -1493,9 +1636,15 @@ export class BnCEK
     mkPairData( a: UPLCTerm, b: UPLCTerm ): ConstOrErr
     {
         const _a = getData( a );
-        if( _a === undefined ) return new ErrorUPLC("not data; mkPairData <frist argument>");
+        if( _a === undefined ) return new ErrorUPLC(
+            "mkPairData :: not data; mkPairData <frist argument>",
+            { a }
+        );
         const _b = getData( b );
-        if( _b === undefined ) return new ErrorUPLC("not data; mkPairData <second argument>");
+        if( _b === undefined ) return new ErrorUPLC(
+            "mkPairData :: not data; mkPairData <second argument>",
+            { b }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.mkPairData );
 
@@ -1511,7 +1660,10 @@ export class BnCEK
     }
     mkNilData( unit: UPLCTerm ): ConstOrErr
     {
-        if( !isConstOfType( unit, constT.unit ) ) return new ErrorUPLC("not unit");
+        if( !isConstOfType( unit, constT.unit ) ) return new ErrorUPLC(
+            "mkNilData :: not unit",
+            { unit }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.mkNilData );
 
@@ -1524,7 +1676,10 @@ export class BnCEK
     }
     mkNilPairData( unit: UPLCTerm ): ConstOrErr
     {
-        if( !isConstOfType( unit, constT.unit ) ) return new ErrorUPLC("not unit");
+        if( !isConstOfType( unit, constT.unit ) ) return new ErrorUPLC(
+            "mkNilPairData :: not unit",
+            { unit }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.mkNilPairData );
 
@@ -1539,7 +1694,10 @@ export class BnCEK
     serialiseData( data: UPLCTerm ): ConstOrErr
     {
         const d = getData( data );
-        if( d === undefined ) return new ErrorUPLC("serialiseData: not data input");
+        if( d === undefined ) return new ErrorUPLC(
+            "serialiseData :: not data input",
+            { data }
+        );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.serialiseData );
 
