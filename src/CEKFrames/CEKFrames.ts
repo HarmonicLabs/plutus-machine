@@ -5,6 +5,15 @@ import { RApp } from "./RApp";
 
 export type Frame = ForceFrame | LApp | RApp ;
 
+export function isFrame( stuff: any ): stuff is Frame
+{
+    return (
+        stuff instanceof ForceFrame ||
+        stuff instanceof LApp ||
+        stuff instanceof RApp
+    );
+}
+
 export class CEKFrames
 {
     private _frames: Frame[];
@@ -14,6 +23,33 @@ export class CEKFrames
     }
 
     get isEmpty(): boolean { return this._frames.length === 0; }
+
+    callStack(): string[]
+    {
+        /*
+        Essentially
+        ```
+        return this._frames
+            .map( f => f.src )
+            .filter( s => typeof s === "string" );
+        ```
+        but avoids 1 extra array allocation 
+        */
+        const framesLen = this._frames.length;
+        const result: string[] = new Array( framesLen );
+        let actualLen = 0;
+        for( let i = 0; i < framesLen; i++ )
+        {
+            const src = this._frames[i].src;
+            if( typeof src === "string" )
+            {
+                result[actualLen++] = src;
+            }
+        }
+        // drop extra slots
+        result.length = actualLen;
+        return result;
+    }
 
     push( f: Frame ): void
     {

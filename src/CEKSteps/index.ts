@@ -23,7 +23,7 @@ export class ComputeStep
         return new ComputeStep(
             this._term.clone(),
             this._env.clone()
-        )
+        );
     }
 }
 export class ReturnStep
