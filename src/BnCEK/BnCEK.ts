@@ -727,7 +727,7 @@ export class BnCEK
         const _b = getBS( b );
         if( _b === undefined )
         return new ErrorUPLC(
-            "equalsByteString :: secondt argument not BS",
+            "equalsByteString :: second argument not BS",
             {
                 bs_0: a,
                 bs_1: b 
