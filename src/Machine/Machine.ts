@@ -373,6 +373,7 @@ export class Machine<V extends MachineVersion = MachineVersion>
             {
                 if( v.nMissingArgs === 0 )
                 {
+                    console.log( v );
                     const evalResult = bnCEK.eval( v );
                     if( evalResult instanceof ErrorUPLC )
                     {

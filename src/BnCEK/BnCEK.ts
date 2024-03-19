@@ -15,10 +15,10 @@ import { CEKValue } from "../CEKValue";
 function intToSize( n: bigint ): bigint
 {
     n = BigInt( n );
-    if ( n === BigInt( 0 ) ) return BigInt( 1 );
+    if ( n === _0n ) return BigInt( 1 );
 
     // same as `intToSize( -n - BigInt( 1 ) )` but inlined
-    if( n  < BigInt( 0 ) ) return ( log2( ( -n - BigInt( 1 ) ) << BigInt( 1 ) ) / BigInt( 8 )) + BigInt( 1 ) ;
+    if( n  < _0n ) return ( log2( ( -n - BigInt( 1 ) ) << BigInt( 1 ) ) / BigInt( 8 )) + BigInt( 1 ) ;
 
     return ( log2( n << BigInt( 1 ) ) / BigInt( 8 )) + BigInt( 1 );
 }
@@ -73,7 +73,7 @@ function pairToSize( pairValue: Pair<ConstValue,ConstValue> ): bigint
 function dataToSize( data: Data ): bigint
 {
     const stack: Data[] = [ data ];
-    let tot: bigint = BigInt( 0 );
+    let tot: bigint = _0n;
 
     while( stack.length > 0 )
     {
@@ -284,13 +284,13 @@ function intBinOp( a: CEKValue, b: CEKValue , op: (a: bigint, b: bigint) => bigi
 
 export function haskellQuot( a: bigint, b: bigint ): bigint | undefined
 {
-    if( b === BigInt( 0 ) ) return undefined;
+    if( b === _0n ) return undefined;
     return a / b;
 }
 
 export function haskellRem( a: bigint, b: bigint ): bigint | undefined
 {
-    if( b === BigInt( 0 ) ) return undefined;
+    if( b === _0n ) return undefined;
     return a % b;
 }
 
@@ -306,9 +306,9 @@ function haskellQuotRem( a: bigint, b: bigint ): [ quot: bigint, rem: bigint ] |
 
 function haskellDivMod( a: bigint, b: bigint ): [ div: bigint, mod: bigint ] | undefined
 {
-    if( b === BigInt( 0 ) ) return undefined;
+    if( b === _0n ) return undefined;
     
-    if( a > BigInt( 0 ) && b < BigInt( 0 ) )
+    if( a > _0n && b < _0n )
     {
         const qr = haskellQuotRem( a - BigInt( 1 ), b );
         if( qr === undefined ) return undefined;
@@ -319,7 +319,7 @@ function haskellDivMod( a: bigint, b: bigint ): [ div: bigint, mod: bigint ] | u
         ]
     }
 
-    if( a < BigInt( 0 ) && b > BigInt( 0 ) )
+    if( a < _0n && b > _0n )
     {
         const qr = haskellQuotRem( a + BigInt( 1 ), b );
         if( qr === undefined ) return undefined;
@@ -450,6 +450,9 @@ export class BnCEK
             case UPLCBuiltinTag.bls12_381_finalVerify                : return (this.bls12_381_finalVerify as any)( ...bn.args );
             case UPLCBuiltinTag.keccak_256                           : return (this.keccak_256 as any)( ...bn.args );
             case UPLCBuiltinTag.blake2b_224                          : return (this.blake2b_224 as any)( ...bn.args );
+
+            case UPLCBuiltinTag.byteStringToInteger                  : return (this.byteStringToInteger as any)( ...bn.args );
+            case UPLCBuiltinTag.integerToByteString                  : return (this.integerToByteString as any)( ...bn.args );
             
             default:
                 bn.tag; // check that is of type 'never'
@@ -523,6 +526,8 @@ export class BnCEK
     {
         return intBinOp( _a , _b,
             ((a: bigint, b: bigint) => {
+
+                if( b === _0n ) return undefined; // divide by 0
 
                 const f = this.getBuiltinCostFunc( UPLCBuiltinTag.divideInteger );
                 
@@ -689,7 +694,9 @@ export class BnCEK
     {
         let _a = getInt( a );
         if( _a === undefined ) return new CEKError("consByteString :: not Int", { a });
-        _a = abs( _a ) % BigInt( 256 );
+        
+        if( _a < 0 ) return new CEKError("consByteString :: negative byte");
+        if( _a >= BigInt( 256 ) ) return new CEKError("consByteString :: UInt8 overflow");
 
         const _b = getBS( b );
         if(_b === undefined ) return new CEKError("consByteString :: not BS", { b });
@@ -717,10 +724,10 @@ export class BnCEK
         const _bs = getBS( bs );
         if( _bs === undefined ) return new CEKError("sliceByteString :: not BS", { bs });
 
-        const i = idx < BigInt( 0 ) ? BigInt( 0 ) : idx;
+        const i = idx < _0n ? _0n : idx;
 
-        const endIdx = idx + length - BigInt( 1 );
-        const maxIdx = BigInt( _bs.toBuffer().length ) - BigInt( 1 );
+        const endIdx = i + length;
+        const maxIdx = BigInt( _bs.toBuffer().length );
 
         const j = endIdx > maxIdx ? maxIdx : endIdx;
 
@@ -770,7 +777,10 @@ export class BnCEK
         if( _bs === undefined ) return new CEKError("indexByteString :: not BS", { bs });
         
         const i = getInt( idx );
-        if( i === undefined || i >= _bs.toBuffer().length || i < BigInt( 0 ) ) return new CEKError("indexByteString :: not int", { idx });
+        if( i === undefined || i >= _bs.toBuffer().length || i < _0n ) return new CEKError("indexByteString :: not int", { idx });
+
+        if( i >= BigInt("9223372036854775808") )
+        return new CEKError("indexByteString :: (maxBound :: Int64) overflow")
 
         const result = _bs.toBuffer().at( Number( i ) );
         if( result === undefined ) return new CEKError(
@@ -962,11 +972,11 @@ export class BnCEK
             cpu: f.cpu.at( sb )
         });
 
-        return CEKConst.byteString(
+        return constOrErr(() => CEKConst.byteString(
             new ByteString(
                 blake2b( b.toBuffer(), 32 )
             )
-        );
+        ));
     }
 
     verifyEd25519Signature( key: CEKValue, message: CEKValue, signature: CEKValue ): ConstOrErr
@@ -1019,7 +1029,7 @@ export class BnCEK
             cpu: f.cpu.at( sk, sm, ss )
         });
 
-        return CEKConst.bool( verifyEd25519Signature( sBytes, m.toBuffer(), kBytes ) );
+        return constOrErr(() => CEKConst.bool( verifyEd25519Signature( sBytes, m.toBuffer(), kBytes ) ));
     }
 
     appendString( a: CEKValue, b: CEKValue ): ConstOrErr
@@ -1101,21 +1111,24 @@ export class BnCEK
         if( _a === undefined ) 
         return new CEKError(
             "decodeUtf8 :: not BS",
-            {
-                arg: a
-            }
+            { arg: a }
         );
+
+        const _a_buff = _a.toBuffer();
+        
+        if( !isValidUtf8( _a_buff ) )
+        return new CEKError("decodeUtf8 :: invalid utf8", { hex: toHex( _a_buff ) });
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.decodeUtf8 );
 
-        const sa = bsToSize( _a );
+        const sa = bsToSize( _a_buff );
 
         this.machineBudget.add({
             mem: f.mem.at( sa ),
             cpu: f.cpu.at( sa )
         });
 
-        return CEKConst.str( toUtf8( _a.toBuffer() ) );
+        return CEKConst.str( toUtf8( _a_buff ) );
     }
     ifThenElse( condition: CEKValue, caseTrue: ConstOrErr, caseFalse: ConstOrErr ): ConstOrErr
     {
@@ -1392,7 +1405,7 @@ export class BnCEK
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.constrData );
 
         const si = intToSize( i );
-        const sfields = _fields.reduce( (acc, elem) => acc + dataToSize( elem ), BigInt( 0 ) );
+        const sfields = _fields.reduce( (acc, elem) => acc + dataToSize( elem ), _0n );
 
         this.machineBudget.add({
             mem: f.mem.at( si, sfields ),
@@ -2210,7 +2223,7 @@ export class BnCEK
         const b = getBS( a );
         if( b === undefined ) return new CEKError(
             "keccak_256 :: not BS",
-            { b }
+            { b, a }
         );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.keccak_256 );
@@ -2229,7 +2242,7 @@ export class BnCEK
         const b = getBS( a );
         if( b === undefined ) return new CEKError(
             "blake2b_224 :: not BS",
-            { b }
+            { b, a }
         );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.blake2b_224 );
@@ -2344,7 +2357,13 @@ function integerToByteString(
         { bigEndian, size, integer }
     );
 
-    return bytes;
+    if( bytesLen > 8192 )
+    return new CEKError(
+        "integerToByteString ::input integer too big, max allowed byte size is 8192",
+        { bigEndian, size, integer }
+    );
+
+    return CEKConst.byteString(bytes);
 }
 function ilog2( i: bigint ): bigint
 {
@@ -2358,5 +2377,18 @@ function bytestringToInteger(
 {
     let bytes = bs.toBuffer();
     bytes = bigEndian ? bytes : bytes.reverse();
+    if( bytes.length === 0 ) return CEKConst.int( 0 );
     return CEKConst.int( BigInt( "0x" + toHex( bytes ) ) )
 }
+
+function isValidUtf8(bytes: Uint8Array)
+{
+    if( !(globalThis.TextDecoder) ) return true;
+    let decoder = new TextDecoder("utf8", { fatal: true });
+    try {
+      decoder.decode(bytes);
+    } catch {
+      return false;
+    }
+    return true;
+  }

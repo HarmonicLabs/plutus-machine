@@ -29,6 +29,8 @@ export function isCEKValue( stuff: any ): stuff is CEKValue
 
 export function eqCEKValue( a: Readonly<CEKValue>, b: Readonly<CEKValue> ): boolean
 {
+    if( a instanceof CEKError ) return b instanceof CEKError;
+
     if( a instanceof CEKConst && b instanceof CEKConst )
     {
         return (
@@ -72,8 +74,6 @@ export function eqCEKValue( a: Readonly<CEKValue>, b: Readonly<CEKValue> ): bool
         a.nMissingArgs === b.nMissingArgs &&
         a.args.every( (arg, i) => eqCEKValue( arg, b.args[ i ] ) )
     );
-
-    if( a instanceof CEKError ) return b instanceof CEKError;
     
     return false;
 }
