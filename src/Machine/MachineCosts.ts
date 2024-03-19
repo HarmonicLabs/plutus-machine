@@ -1,5 +1,5 @@
 import { forceBigUInt } from "@harmoniclabs/biguint";
-import { AnyV2CostModel, toCostModelV2, CostModelPlutusV2 } from "@harmoniclabs/cardano-costmodels-ts";
+import { AnyV2CostModel, toCostModelV2, CostModelPlutusV2, AnyV1CostModel, AnyV3CostModel, toCostModelV3, isCostModelsV1, costModelV1ToFakeV3, costModelV2ToFakeV3, isCostModelsV2, CostModelPlutusV3 } from "@harmoniclabs/cardano-costmodels-ts";
 import { ExBudget } from "./ExBudget";
 import { definePropertyIfNotPresent } from "@harmoniclabs/obj-utils";
 
@@ -11,7 +11,9 @@ export interface MachineCosts {
     delay: ExBudget,
     force: ExBudget,
     apply: ExBudget,
-    builtinNode: ExBudget
+    builtinNode: ExBudget,
+    constr: ExBudget,
+    case: ExBudget
 };
 
 export const defaultV1MachineCosts: MachineCosts = Object.freeze({
@@ -23,6 +25,8 @@ export const defaultV1MachineCosts: MachineCosts = Object.freeze({
     force:          new ExBudget({ mem: 100, cpu: 23000 }),
     apply:          new ExBudget({ mem: 100, cpu: 23000 }),
     builtinNode:    new ExBudget({ mem: 100, cpu: 23000 }),
+    constr:         new ExBudget({ mem: 100, cpu: 23000 }),
+    case:           new ExBudget({ mem: 100, cpu: 23000 }),
 });
 
 export const defaultV2MachineCosts: MachineCosts = Object.freeze({
@@ -34,14 +38,32 @@ export const defaultV2MachineCosts: MachineCosts = Object.freeze({
     force:          new ExBudget({ mem: 100, cpu: 23000 }),
     apply:          new ExBudget({ mem: 100, cpu: 23000 }),
     builtinNode:    new ExBudget({ mem: 100, cpu: 23000 }),
+    constr:         new ExBudget({ mem: 100, cpu: 23000 }),
+    case:           new ExBudget({ mem: 100, cpu: 23000 }),
 });
 
-export function costModelV2ToMachineCosts( costsV2: AnyV2CostModel ): MachineCosts
+export const defaultV3MachineCosts: MachineCosts = Object.freeze({
+    startup:        new ExBudget({ mem: 100, cpu: 100 }),
+    var:            new ExBudget({ mem: 100, cpu: 23000 }),
+    constant:       new ExBudget({ mem: 100, cpu: 23000 }),
+    lam:            new ExBudget({ mem: 100, cpu: 23000 }),
+    delay:          new ExBudget({ mem: 100, cpu: 23000 }),
+    force:          new ExBudget({ mem: 100, cpu: 23000 }),
+    apply:          new ExBudget({ mem: 100, cpu: 23000 }),
+    builtinNode:    new ExBudget({ mem: 100, cpu: 23000 }),
+    constr:         new ExBudget({ mem: 100, cpu: 23000 }),
+    case:           new ExBudget({ mem: 100, cpu: 23000 }),
+});
+
+export function costModelToMachineCosts( costMdls: AnyV1CostModel | AnyV2CostModel | AnyV3CostModel ): MachineCosts
 {
-    const costs = toCostModelV2( costsV2 );
+    const costs =
+    isCostModelsV1( costMdls ) ? costModelV1ToFakeV3({ ...costMdls }) :
+    isCostModelsV2( costMdls ) ? costModelV2ToFakeV3({ ...costMdls }) :
+    toCostModelV3( costMdls );
     const result = {};
 
-    type CekCostKey = keyof CostModelPlutusV2 & `cek${string}`;
+    type CekCostKey = keyof CostModelPlutusV3 & `cek${string}`;
     type CekCpuCostKey = CekCostKey & `${string}-exBudgetCPU`;
     type CekMemCostKey = CekCostKey & `${string}-exBudgetMemory`;
 
@@ -56,7 +78,7 @@ export function costModelV2ToMachineCosts( costsV2: AnyV2CostModel ): MachineCos
             result, k,
             {
                 get: () => val.clone(),
-                set: (...whatever: any[]) => {},
+                set: () => {},
                 enumerable: true,
                 configurable: false
             }
@@ -71,6 +93,8 @@ export function costModelV2ToMachineCosts( costsV2: AnyV2CostModel ): MachineCos
     add("force",        "cekForceCost-exBudgetCPU",     "cekForceCost-exBudgetMemory" );
     add("apply",        "cekApplyCost-exBudgetCPU",     "cekApplyCost-exBudgetMemory"   );
     add("builtinNode",  "cekBuiltinCost-exBudgetCPU",   "cekBuiltinCost-exBudgetMemory" );
+    add("constr",       "cekConstrCost-exBudgetCPU",    "cekConstrCost-exBudgetMemory" );
+    add("case",         "cekCaseCost-exBudgetCPU",      "cekCaseCost-exBudgetMemory" );
 
     return result as any;
 }

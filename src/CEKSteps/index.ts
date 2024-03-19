@@ -65,13 +65,13 @@ export class CEKSteps
         return this._steps.pop();
     }
 
-    top(): Readonly<CEKStep> | undefined
+    top(): CEKStep | undefined
     {
         if( this._steps.length === 0 ) return undefined;
-        return Object.freeze( this._steps[ this._steps.length - 1 ] );
+        return this._steps[ this._steps.length - 1 ];
     }
 
-    _unsafe_clear(): void
+    _clear(): void
     {
         this._steps.length = 0;
     }

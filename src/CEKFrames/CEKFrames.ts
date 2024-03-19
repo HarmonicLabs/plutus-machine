@@ -2,15 +2,19 @@ import { showUPLC } from "@harmoniclabs/uplc";
 import { ForceFrame } from "./ForceFrame";
 import { LApp } from "./LApp";
 import { RApp } from "./RApp";
+import { ConstrFrame } from "./ConstrFrame";
+import { CaseFrame } from "./CaseFrame";
 
-export type Frame = ForceFrame | LApp | RApp ;
+export type Frame = ForceFrame | LApp | RApp | ConstrFrame | CaseFrame;
 
 export function isFrame( stuff: any ): stuff is Frame
 {
     return (
         stuff instanceof ForceFrame ||
         stuff instanceof LApp ||
-        stuff instanceof RApp
+        stuff instanceof RApp ||
+        stuff instanceof ConstrFrame ||
+        stuff instanceof CaseFrame
     );
 }
 
@@ -51,9 +55,9 @@ export class CEKFrames
         return result;
     }
 
-    push( f: Frame ): void
+    push( ...frames: Frame[] ): void
     {
-        this._frames.push( f );
+        this._frames.push( ...frames );
     }
 
     pop(): Frame
@@ -95,9 +99,17 @@ export function showFrames( frames: Readonly<CEKFrames> ): string
         {
             res = `[ ${showUPLC(topFrame.func)} ${res} ]`
         }
-        else
+        else if( topFrame instanceof RApp )
         {
             res = `[ ${res} ${showUPLC(topFrame.arg)} ]`
+        }
+        else if( topFrame instanceof ConstrFrame )
+        {
+            res = `(constr ${topFrame.tag} [ ${topFrame.terms.map( showUPLC ).join(", ")} ] [ ${topFrame.values.map( v => v.clone() )} ])`;
+        }
+        else if( topFrame instanceof CaseFrame )
+        {
+            res = `(case [ ${topFrame.terms.map( showUPLC ).join(", ")} ])`;
         }
     }
 

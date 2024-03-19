@@ -208,6 +208,67 @@ export class Linear3InZ extends BaseLinear
     at( x: bigint, y: bigint, z: bigint ) { return this.quote + ( z * this.slope ) }
 }
 
+/**
+ * function in the form of
+ * `a + b * x + c * (x**2)`
+ */
+class BaseQuadratic
+{
+    /** a */
+    readonly x0: bigint;
+    /** b * x  */
+    readonly x1: bigint;
+    /** c * x**2 */
+    readonly x2: bigint;
+    constructor( x0: bigint, x1: bigint, x2: bigint )
+    {
+        defineReadOnlyProperty( this, "x0", BigInt(x0) );
+        defineReadOnlyProperty( this, "x1", BigInt(x1) );
+        defineReadOnlyProperty( this, "x2", BigInt(x2) );
+    }
+}
+
+export class Quadratic3InZ extends BaseQuadratic
+    implements CostFunc<3>
+{
+    constructor( x0: bigint, x1: bigint, x2: bigint )
+    {
+        super( x0, x1, x2 );
+    }
+    at(x: bigint, y: bigint, z: bigint)
+    {
+        return this.x0 + (this.x1 * z) + (this.x2 * z * z)
+    };
+}
+
+export class Quadratic2InY extends BaseQuadratic
+    implements CostFunc<2>
+{
+    constructor( x0: bigint, x1: bigint, x2: bigint )
+    {
+        super( x0, x1, x2 );
+    }
+    at(x: bigint, y: bigint)
+    {
+        return this.x0 + (this.x1 * y) + (this.x2 * y * y)
+    };
+}
+
+const _0n = BigInt( 0 );
+
+export class ConstYOrLinearZ extends BaseLinear
+    implements LinearCostFunc<3>
+{
+    constructor( quote: bigint, slope: bigint )
+    {
+        super( quote, slope );
+    }
+    at(x: bigint, y: bigint, z: bigint): bigint
+    {
+        return y === _0n ? this.quote + (this.slope * z) : y;
+    }
+}
+
 export type OneArg
     = FixedCost
     | Linear1;
@@ -223,14 +284,17 @@ export type TwoArgs
     | Linear2InMax
     | LinearOnEqualXY
     | YGtEqOrConst<CostFunc<2>>
-    | XGtEqOrConst<CostFunc<2>>;
+    | XGtEqOrConst<CostFunc<2>>
+    | Quadratic2InY;
 
 export type ThreeArgs
     = FixedCost
     | LinearInAll3
     | Linear3InX
     | Linear3InY
-    | Linear3InZ;
+    | Linear3InZ
+    | Quadratic3InZ
+    | ConstYOrLinearZ;
 
 export type SixArgs
     = FixedCost;

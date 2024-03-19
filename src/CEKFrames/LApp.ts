@@ -4,7 +4,6 @@ import { CEKValue } from "../CEKValue";
 export class LApp
 {
     readonly func!: CEKValue;
-
     src?: string | undefined
 
     constructor( func: CEKValue, src?: string )

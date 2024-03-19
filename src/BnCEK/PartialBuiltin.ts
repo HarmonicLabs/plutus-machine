@@ -18,7 +18,7 @@ export class PartialBuiltin
 
     clone(): PartialBuiltin
     {
-        return new PartialBuiltin( this._tag, this._args.map( arg =>  arg.clone() ) );
+        return new PartialBuiltin( this._tag, this._args.map( arg => arg.clone() ) );
     }
 
     get nMissingArgs(): number

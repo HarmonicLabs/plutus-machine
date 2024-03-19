@@ -1,5 +1,6 @@
 import { Application, Lambda, Builtin, UPLCConst, UPLCVar } from "@harmoniclabs/uplc";
 import { Machine } from "../Machine/Machine";
+import { CEKConst } from "../CEKValue/CEKConst";
 
 describe(" CEK :: Machine.evalSimple ", () => {
     
@@ -40,7 +41,7 @@ describe(" CEK :: Machine.evalSimple ", () => {
                 )
             )
         ).toEqual(
-            UPLCConst.int( 42 )
+            CEKConst.int( 42 )
         );
 
     });

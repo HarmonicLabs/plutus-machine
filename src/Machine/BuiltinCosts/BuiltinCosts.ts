@@ -1,7 +1,7 @@
 import { UPLCBuiltinTag } from "@harmoniclabs/uplc";
-import { CostFunction, FixedCost, Linear1, Linear2InBothAdd, Linear2InBothMult, Linear2InBothSub, Linear2InMax, Linear2InMin, Linear2InY, Linear3InY, Linear3InZ, LinearOnEqualXY, OneArg, SixArgs, ThreeArgs, TwoArgs, XGtEqOrConst, YGtEqOrConst } from "./costFunctions";
+import { ConstYOrLinearZ, CostFunction, FixedCost, Linear1, Linear2InBothAdd, Linear2InBothMult, Linear2InBothSub, Linear2InMax, Linear2InMin, Linear2InX, Linear2InY, Linear3InY, Linear3InZ, LinearOnEqualXY, OneArg, Quadratic2InY, Quadratic3InZ, SixArgs, ThreeArgs, TwoArgs, XGtEqOrConst, YGtEqOrConst } from "./costFunctions";
 import { forceBigUInt } from "@harmoniclabs/biguint";
-import { AnyV1CostModel, costModelV1ToFakeV2, AnyV2CostModel, toCostModelV2, isCostModelsV2 } from "@harmoniclabs/cardano-costmodels-ts";
+import { AnyV1CostModel, costModelV1ToFakeV2, AnyV2CostModel, toCostModelV2, isCostModelsV2, costModelV2ToFakeV3, costModelV1ToFakeV3, AnyV3CostModel, toCostModelV3, isCostModelsV3 } from "@harmoniclabs/cardano-costmodels-ts";
 import { defineReadOnlyProperty, hasOwn } from "@harmoniclabs/obj-utils";
 import { assert } from "../../utils/assert";
 
@@ -10,45 +10,48 @@ export type ExecCostFuncs<F extends CostFunction> = {
     cpu: F
 };
 
+// `ExecCostFuncs<TwoArg>` are commented out
+// beacause as the most frequent is returned as default (instead of never)
+// to simplify the typescript type checking
 export type BuiltinCostsOf<Tag extends UPLCBuiltinTag> =
-    Tag extends UPLCBuiltinTag.addInteger ?                  ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.subtractInteger ?             ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.multiplyInteger ?             ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.divideInteger ?               ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.quotientInteger ?             ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.remainderInteger ?            ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.modInteger ?                  ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.equalsInteger ?               ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.lessThanInteger ?             ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.lessThanEqualInteger ?        ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.appendByteString ?            ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.consByteString ?              ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.addInteger ?                  ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.subtractInteger ?             ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.multiplyInteger ?             ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.divideInteger ?               ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.quotientInteger ?             ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.remainderInteger ?            ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.modInteger ?                  ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.equalsInteger ?               ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.lessThanInteger ?             ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.lessThanEqualInteger ?        ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.appendByteString ?            ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.consByteString ?              ExecCostFuncs<TwoArgs> :
     Tag extends UPLCBuiltinTag.sliceByteString ?             ExecCostFuncs<ThreeArgs> :
     Tag extends UPLCBuiltinTag.lengthOfByteString ?          ExecCostFuncs<OneArg> :
-    Tag extends UPLCBuiltinTag.indexByteString ?             ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.equalsByteString ?            ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.lessThanByteString ?          ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.lessThanEqualsByteString ?    ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.indexByteString ?             ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.equalsByteString ?            ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.lessThanByteString ?          ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.lessThanEqualsByteString ?    ExecCostFuncs<TwoArgs> :
     Tag extends UPLCBuiltinTag.sha2_256 ?                    ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.sha3_256 ?                    ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.blake2b_256 ?                 ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.verifyEd25519Signature ?      ExecCostFuncs<ThreeArgs> :
-    Tag extends UPLCBuiltinTag.appendString ?                ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.equalsString ?                ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.appendString ?                ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.equalsString ?                ExecCostFuncs<TwoArgs> :
     Tag extends UPLCBuiltinTag.encodeUtf8 ?                  ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.decodeUtf8 ?                  ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.ifThenElse ?                  ExecCostFuncs<ThreeArgs> :
-    Tag extends UPLCBuiltinTag.chooseUnit ?                  ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.trace ?                       ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.chooseUnit ?                  ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.trace ?                       ExecCostFuncs<TwoArgs> :
     Tag extends UPLCBuiltinTag.fstPair ?                     ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.sndPair ?                     ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.chooseList ?                  ExecCostFuncs<ThreeArgs> :
-    Tag extends UPLCBuiltinTag.mkCons ?                      ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.mkCons ?                      ExecCostFuncs<TwoArgs> :
     Tag extends UPLCBuiltinTag.headList ?                    ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.tailList ?                    ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.nullList ?                    ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.chooseData ?                  ExecCostFuncs<SixArgs> :
-    Tag extends UPLCBuiltinTag.constrData ?                  ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.constrData ?                  ExecCostFuncs<TwoArgs> :
     Tag extends UPLCBuiltinTag.mapData ?                     ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.listData ?                    ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.iData ?                       ExecCostFuncs<OneArg> :
@@ -58,14 +61,36 @@ export type BuiltinCostsOf<Tag extends UPLCBuiltinTag> =
     Tag extends UPLCBuiltinTag.unListData ?                  ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.unIData ?                     ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.unBData ?                     ExecCostFuncs<OneArg> :
-    Tag extends UPLCBuiltinTag.equalsData ?                  ExecCostFuncs<TwoArgs> :
-    Tag extends UPLCBuiltinTag.mkPairData ?                  ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.equalsData ?                  ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.mkPairData ?                  ExecCostFuncs<TwoArgs> :
     Tag extends UPLCBuiltinTag.mkNilData ?                   ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.mkNilPairData ?               ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.serialiseData ?                   ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.verifyEcdsaSecp256k1Signature ?   ExecCostFuncs<ThreeArgs> :
     Tag extends UPLCBuiltinTag.verifySchnorrSecp256k1Signature ? ExecCostFuncs<ThreeArgs>:
-    never;
+    // Tag extends UPLCBuiltinTag.bls12_381_G1_add ?           ExecCostFuncs<TwoArg> :
+    Tag extends UPLCBuiltinTag.bls12_381_G1_neg ?           ExecCostFuncs<OneArg> :
+    // Tag extends UPLCBuiltinTag.bls12_381_G1_scalarMul ?     ExecCostFuncs<TwoArg> :
+    // Tag extends UPLCBuiltinTag.bls12_381_G1_equal ?         ExecCostFuncs<TwoArg> :
+    // Tag extends UPLCBuiltinTag.bls12_381_G1_hashToGroup ?   ExecCostFuncs<TwoArg> :
+    Tag extends UPLCBuiltinTag.bls12_381_G1_compress ?      ExecCostFuncs<OneArg> :
+    Tag extends UPLCBuiltinTag.bls12_381_G1_uncompress ?    ExecCostFuncs<OneArg> :
+    // Tag extends UPLCBuiltinTag.bls12_381_G2_add ?           ExecCostFuncs<TwoArg> :
+    Tag extends UPLCBuiltinTag.bls12_381_G2_neg ?           ExecCostFuncs<OneArg> :
+    // Tag extends UPLCBuiltinTag.bls12_381_G2_scalarMul ?     ExecCostFuncs<TwoArg> :
+    // Tag extends UPLCBuiltinTag.bls12_381_G2_equal ?         ExecCostFuncs<TwoArg> :
+    // Tag extends UPLCBuiltinTag.bls12_381_G2_hashToGroup ?   ExecCostFuncs<TwoArg> :
+    Tag extends UPLCBuiltinTag.bls12_381_G2_compress ?      ExecCostFuncs<OneArg> :
+    Tag extends UPLCBuiltinTag.bls12_381_G2_uncompress ?    ExecCostFuncs<OneArg> :
+    // Tag extends UPLCBuiltinTag.bls12_381_millerLoop ?       ExecCostFuncs<TwoArg> :
+    // Tag extends UPLCBuiltinTag.bls12_381_mulMlResult ?      ExecCostFuncs<TwoArg> :
+    // Tag extends UPLCBuiltinTag.bls12_381_finalVerify ?      ExecCostFuncs<TwoArg> :
+    Tag extends UPLCBuiltinTag.keccak_256 ?                 ExecCostFuncs<OneArg> :
+    Tag extends UPLCBuiltinTag.blake2b_224 ?                ExecCostFuncs<OneArg> :
+    Tag extends UPLCBuiltinTag.integerToByteString ?        ExecCostFuncs<ThreeArgs> :
+    // Tag extends UPLCBuiltinTag.byteStringToInteger ?        ExecCostFuncs<TwoArg> :
+    ExecCostFuncs<TwoArgs>
+    // never;
 
 type ToBuiltinCache = {
     [x in UPLCBuiltinTag]: BuiltinCostsOf<x>;
@@ -73,14 +98,19 @@ type ToBuiltinCache = {
 
 export function costModelV1ToBuiltinCosts( costmdls: AnyV1CostModel ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
 {
-    return costModelV2ToBuiltinCosts( costModelV1ToFakeV2( costmdls ) )
+    return costModelV3ToBuiltinCosts( costModelV1ToFakeV3({ ...costmdls }) )
 }
 
 export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
 {
-    const costs = toCostModelV2( costmdls );
+    return costModelV3ToBuiltinCosts( costModelV2ToFakeV3({ ...costmdls }) )
+}
+
+export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
+{
+    const costs = toCostModelV3( costmdls );
     assert(
-        isCostModelsV2( costs ),
+        isCostModelsV3( costs ),
         "invalid cost models passed"
     );
     
@@ -112,7 +142,7 @@ export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel ): <Tag exte
                         forceBigUInt( costs["addInteger-cpu-arguments-slope"] )
                     ),
                     mem: new Linear2InMax(
-                        forceBigUInt( costs["addInteger-memory-arguments-intercept"]) ,
+                        forceBigUInt( costs["addInteger-memory-arguments-intercept"] ) ,
                         forceBigUInt( costs["addInteger-memory-arguments-slope"] )
                     )
                 });
@@ -127,7 +157,7 @@ export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel ): <Tag exte
                         forceBigUInt( costs["subtractInteger-memory-arguments-intercept"] ),
                         forceBigUInt( costs["subtractInteger-memory-arguments-slope"] ),
                     )
-                })
+                });
             break;
             case UPLCBuiltinTag.multiplyInteger:
                 return readonly({
@@ -139,7 +169,7 @@ export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel ): <Tag exte
                         forceBigUInt( costs["multiplyInteger-memory-arguments-intercept"] ),
                         forceBigUInt( costs["multiplyInteger-memory-arguments-slope"] ),
                     ) 
-                })
+                });
             break;
             case UPLCBuiltinTag.divideInteger:
                 return readonly({
@@ -169,7 +199,7 @@ export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel ): <Tag exte
                         forceBigUInt( costs["quotientInteger-memory-arguments-slope"] ),
                         forceBigUInt( costs["quotientInteger-memory-arguments-minimum"] )
                     )
-                })
+                });
             break;
             case UPLCBuiltinTag.remainderInteger:
                 return readonly({
@@ -264,7 +294,7 @@ export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel ): <Tag exte
                         forceBigUInt( costs["sliceByteString-cpu-arguments-intercept"] ),
                         forceBigUInt( costs["sliceByteString-cpu-arguments-slope"] ),
                     )
-                })
+                });
             break;
             case UPLCBuiltinTag.lengthOfByteString:
                 return readonly({
@@ -440,7 +470,7 @@ export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel ): <Tag exte
                 return readonly({
                     cpu: new FixedCost( forceBigUInt(  costs["tailList-cpu-arguments"] ) ),
                     mem: new FixedCost( forceBigUInt(  costs["tailList-memory-arguments"] ) )
-                })
+                });
             break;
             case UPLCBuiltinTag.nullList:
                 return readonly({
@@ -551,7 +581,7 @@ export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel ): <Tag exte
                         forceBigUInt( costs["serialiseData-memory-arguments-intercept"] ), 
                         forceBigUInt( costs["serialiseData-memory-arguments-slope"] ), 
                     )
-                })
+                });
             break;
             case UPLCBuiltinTag.verifyEcdsaSecp256k1Signature:
                 return readonly({
@@ -566,6 +596,164 @@ export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel ): <Tag exte
                         forceBigUInt( costs["verifySchnorrSecp256k1Signature-cpu-arguments-slope"] )
                     ),
                     mem: new FixedCost( forceBigUInt( costs["verifySchnorrSecp256k1Signature-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G1_add:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_G1_add-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G1_add-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G1_neg:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_G1_neg-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G1_neg-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G1_scalarMul:
+                return readonly({
+                    cpu: new Linear2InX(
+                        forceBigUInt( costs["bls12_381_G1_scalarMul-cpu-arguments-intercept"] ),
+                        forceBigUInt( costs["bls12_381_G1_scalarMul-cpu-arguments-slope"] ),
+                    ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G1_scalarMul-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G1_equal:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_G1_equal-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G1_equal-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G1_hashToGroup:
+                return readonly({
+                    cpu: new Linear2InX(
+                        forceBigUInt( costs["bls12_381_G1_hashToGroup-cpu-arguments-intercept"] ),
+                        forceBigUInt( costs["bls12_381_G1_hashToGroup-cpu-arguments-slope"] ),
+                    ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G1_hashToGroup-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G1_compress:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_G1_compress-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G1_compress-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G1_uncompress:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_G1_uncompress-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G1_uncompress-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G2_add:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_G2_add-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G2_add-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G2_neg:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_G2_neg-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G2_neg-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G2_scalarMul:
+                return readonly({
+                    cpu: new Linear2InX(
+                        forceBigUInt( costs["bls12_381_G2_scalarMul-cpu-arguments-intercept"] ),
+                        forceBigUInt( costs["bls12_381_G2_scalarMul-cpu-arguments-slope"] ),
+                    ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G2_scalarMul-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G2_equal:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_G2_equal-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G2_equal-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G2_hashToGroup:
+                return readonly({
+                    cpu: new Linear2InX(
+                        forceBigUInt( costs["bls12_381_G2_hashToGroup-cpu-arguments-intercept"] ),
+                        forceBigUInt( costs["bls12_381_G2_hashToGroup-cpu-arguments-slope"] ),
+                    ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G2_hashToGroup-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G2_compress:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_G2_compress-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G2_compress-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_G2_uncompress:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_G2_uncompress-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_G2_uncompress-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_millerLoop:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_millerLoop-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_millerLoop-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_mulMlResult:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_mulMlResult-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_mulMlResult-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.bls12_381_finalVerify:
+                return readonly({
+                    cpu: new FixedCost( forceBigUInt( costs["bls12_381_finalVerify-cpu-arguments"] ) ),
+                    mem: new FixedCost( forceBigUInt( costs["bls12_381_finalVerify-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.keccak_256:
+                return readonly({
+                    cpu: new Linear1(
+                        forceBigUInt( costs["keccak_256-cpu-arguments-intercept"] ),
+                        forceBigUInt( costs["keccak_256-cpu-arguments-slope"] )
+                    ),
+                    mem: new FixedCost( forceBigUInt( costs["keccak_256-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.blake2b_224:
+                return readonly({
+                    cpu: new Linear1(
+                        forceBigUInt( costs["blake2b_224-cpu-arguments-intercept"] ),
+                        forceBigUInt( costs["blake2b_224-cpu-arguments-slope"] )
+                    ),
+                    mem: new FixedCost( forceBigUInt( costs["blake2b_224-memory-arguments"] ) )
+                });
+            break;
+            case UPLCBuiltinTag.integerToByteString:
+                return readonly({
+                    cpu: new Quadratic3InZ(
+                        forceBigUInt( costs["integerToByteString-cpu-arguments-c0"] ),
+                        forceBigUInt( costs["integerToByteString-cpu-arguments-c1"] ),
+                        forceBigUInt( costs["integerToByteString-cpu-arguments-c2"] )
+                    ),
+                    mem: new ConstYOrLinearZ(
+                        forceBigUInt( costs["integerToByteString-memory-arguments-intercept"] ),
+                        forceBigUInt( costs["integerToByteString-memory-arguments-slope"] ),
+                    ) 
+                });
+            break;
+            case UPLCBuiltinTag.byteStringToInteger:
+                return readonly({
+                    cpu: new Quadratic2InY(
+                        forceBigUInt( costs["byteStringToInteger-cpu-arguments-c0"] ),
+                        forceBigUInt( costs["byteStringToInteger-cpu-arguments-c1"] ),
+                        forceBigUInt( costs["byteStringToInteger-cpu-arguments-c2"] )
+                    ),
+                    mem: new Linear2InY(
+                        forceBigUInt( costs["byteStringToInteger-memory-arguments-intercept"] ),
+                        forceBigUInt( costs["byteStringToInteger-memory-arguments-slope"] ),
+                    )
                 });
             break;
         }

@@ -1,5 +1,6 @@
 import { UPLCTerm } from "@harmoniclabs/uplc";
 import { CEKHeap } from "./CEKHeap";
+import { CEKValue } from "./CEKValue";
 
 export class CEKEnv
 {
@@ -17,12 +18,12 @@ export class CEKEnv
         return new CEKEnv( this._heapRef, this._heapPtrs.map( ptr => ptr ) )
     }
 
-    push( varValue: UPLCTerm ): void
+    push( varValue: CEKValue ): void
     {
         this._heapPtrs.push( this._heapRef.add( varValue ) );
     }
 
-    get( dbn: number | bigint ): UPLCTerm | undefined
+    get( dbn: number | bigint ): CEKValue | undefined
     {
         const _dbn: number = 
             typeof dbn === "bigint" ? Number( dbn ):

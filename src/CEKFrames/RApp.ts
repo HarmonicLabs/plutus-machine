@@ -1,15 +1,16 @@
 import { defineReadOnlyProperty } from "@harmoniclabs/obj-utils";
 import { UPLCTerm } from "@harmoniclabs/uplc";
 import { CEKEnv } from "../CEKEnv";
+import { CEKValue, isCEKValue } from "../CEKValue";
 
 export class RApp
 {
-    readonly arg!: UPLCTerm;
+    readonly arg!: UPLCTerm | CEKValue;
     readonly env: CEKEnv;
 
     src?: string | undefined
     
-    constructor( arg: UPLCTerm, env: CEKEnv, src?: string )
+    constructor( arg: UPLCTerm | CEKValue, env: CEKEnv, src?: string )
     {
         defineReadOnlyProperty(
             this,
@@ -24,9 +25,14 @@ export class RApp
     clone(): RApp
     {
         return new RApp(
-            this.arg,
+            this.arg.clone(),
             this.env.clone(),
             this.src
         );
+    }
+
+    isRightAppToValue(): boolean
+    {
+        return isCEKValue( this.arg );
     }
 }
