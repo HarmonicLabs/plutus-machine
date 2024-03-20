@@ -5,6 +5,8 @@ import { CEKError } from "../CEKValue/CEKError";
 import { CEKValue, eqCEKValue } from "../CEKValue";
 import { CEKDelay } from "../CEKValue/CEKDelay";
 import { CEKLambda } from "../CEKValue/CEKLambda";
+import { CEKConst } from "../CEKValue/CEKConst";
+import { CEKConstr } from "../CEKValue/CEKConstr";
 
 jest.setTimeout( 5_000 );
 
@@ -90,9 +92,10 @@ function testDir( path: string )
     }
 }
 
-const base_path = "./src/__tests__/plutus_conformance/builtin/semantics";
+testDir( "./src/__tests__/plutus_conformance/builtin/semantics" );
+testDir( "./src/__tests__/plutus_conformance/term/case" );
+testDir( "./src/__tests__/plutus_conformance/term/constr" );
 
-testDir( base_path );
 
 test("mock", () => {});
 
@@ -108,6 +111,14 @@ function shallowEqCEKValue( a: CEKValue, b: CEKValue ): boolean
     return (
         // CEKEnv.eq( a.env, b.env ) &&
         eqUPLCTerm( a.body, b.body )
+    );
+
+    if( a instanceof CEKConstr && b instanceof CEKConstr )
+    return a.tag === b.tag && (
+        Array.isArray( a.values ) &&
+        Array.isArray( b.values ) &&
+        a.values.length === b.values.length &&
+        a.values.every( (a_val,i) => shallowEqCEKValue( a_val, b.values[i] ) )
     );
 
     return eqCEKValue( a, b );

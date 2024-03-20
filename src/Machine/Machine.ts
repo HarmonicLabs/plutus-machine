@@ -596,7 +596,7 @@ export class Machine<V extends MachineVersion = MachineVersion>
                 frames.push(
                     ...v.values
                     .map( v => new RApp( v, topFrame.env.clone() ) )
-                    .reverse()
+                    // .reverse()
                 );
                 const n = topFrame.terms.length;
                 const i = Number( v.tag );
