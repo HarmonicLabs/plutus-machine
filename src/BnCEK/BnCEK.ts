@@ -257,7 +257,7 @@ function getBlsResult( elem: CEKValue ): BlsResult | undefined
 {
     if(!(
         elem instanceof CEKConst &&
-        constTypeEq( elem.type, constT.bls12_381_G2_element ) &&
+        constTypeEq( elem.type, constT.bls12_381_MlResult ) &&
         isBlsResult( elem.value )
     )) return undefined;
 
@@ -1876,7 +1876,7 @@ export class BnCEK
             mem: f.mem.at( BLS_G1_SIZE, BLS_G1_SIZE ),
             cpu: f.cpu.at( BLS_G1_SIZE, BLS_G1_SIZE )
         });
-        return CEKConst.bls12_381_G1_element( bls12_381_G1_add( fst, snd ) );
+        return constOrErr(() => CEKConst.bls12_381_G1_element( bls12_381_G1_add( fst, snd ) ));
     }
     bls12_381_G1_neg( a: CEKValue ): ConstOrErr
     {
@@ -1891,7 +1891,7 @@ export class BnCEK
             cpu: f.cpu.at( BLS_G1_SIZE )
         });
         
-        return CEKConst.bls12_381_G1_element( bls12_381_G1_neg( g1 ) );
+        return constOrErr(() => CEKConst.bls12_381_G1_element( bls12_381_G1_neg( g1 ) ));
     }
     bls12_381_G1_scalarMul( a: CEKValue, b: CEKValue ): ConstOrErr
     {
@@ -1913,7 +1913,7 @@ export class BnCEK
             cpu: f.cpu.at( nSize, BLS_G1_SIZE )
         });
 
-        return CEKConst.bls12_381_G1_element( bls12_381_G1_scalarMul( n, g1 ) );
+        return constOrErr(() => CEKConst.bls12_381_G1_element( bls12_381_G1_scalarMul( n, g1 ) ));
     }
     bls12_381_G1_equal( a: CEKValue, b: CEKValue ): ConstOrErr
     {
@@ -1934,7 +1934,7 @@ export class BnCEK
             cpu: f.cpu.at( BLS_G1_SIZE, BLS_G1_SIZE )
         });
         
-        return CEKConst.bool( bls12_381_G1_equal( fst, snd ) );
+        return constOrErr(() => CEKConst.bool( bls12_381_G1_equal( fst, snd ) ));
     }
     bls12_381_G1_hashToGroup( a: CEKValue, b: CEKValue ): ConstOrErr
     {
@@ -1957,7 +1957,7 @@ export class BnCEK
             cpu: f.cpu.at( sa, sb )
         });
 
-        return CEKConst.bls12_381_G1_element( bls12_381_G1_hashToGroup( fst.toBuffer(), snd.toBuffer() ) );
+        return constOrErr(() => CEKConst.bls12_381_G1_element( bls12_381_G1_hashToGroup( fst.toBuffer(), snd.toBuffer() ) ));
     }
     bls12_381_G1_compress( a: CEKValue ): ConstOrErr
     {
@@ -1972,7 +1972,7 @@ export class BnCEK
             cpu: f.cpu.at( BLS_G1_SIZE )
         });
         
-        return CEKConst.byteString( new ByteString( bls12_381_G1_compress( g1 ) ) );
+        return constOrErr(() => CEKConst.byteString( new ByteString( bls12_381_G1_compress( g1 ) ) ));
     }
     bls12_381_G1_uncompress( a: CEKValue ): ConstOrErr
     {
@@ -1998,7 +1998,7 @@ export class BnCEK
             cpu: f.cpu.at( bsSize )
         });
         
-        return CEKConst.bls12_381_G1_element( bls12_381_G1_uncompress( bytes ) );
+        return constOrErr(() => CEKConst.bls12_381_G1_element( bls12_381_G1_uncompress( bytes ) ));
     }
 
     bls12_381_G2_add( a: CEKValue, b: CEKValue ): ConstOrErr
@@ -2019,7 +2019,7 @@ export class BnCEK
             mem: f.mem.at( BLS_G2_SIZE, BLS_G2_SIZE ),
             cpu: f.cpu.at( BLS_G2_SIZE, BLS_G2_SIZE )
         });
-        return CEKConst.bls12_381_G2_element( bls12_381_G2_add( fst, snd ) );
+        return constOrErr(() => CEKConst.bls12_381_G2_element( bls12_381_G2_add( fst, snd ) ));
     }
     bls12_381_G2_neg( a: CEKValue ): ConstOrErr
     {
@@ -2034,7 +2034,7 @@ export class BnCEK
             cpu: f.cpu.at( BLS_G2_SIZE )
         });
         
-        return CEKConst.bls12_381_G2_element( bls12_381_G2_neg( G2 ) );
+        return constOrErr(() => CEKConst.bls12_381_G2_element( bls12_381_G2_neg( G2 ) ));
     }
     bls12_381_G2_scalarMul( a: CEKValue, b: CEKValue ): ConstOrErr
     {
@@ -2056,7 +2056,7 @@ export class BnCEK
             cpu: f.cpu.at( nSize, BLS_G2_SIZE )
         });
 
-        return CEKConst.bls12_381_G2_element( bls12_381_G2_scalarMul( n, G2 ) );
+        return constOrErr(() => CEKConst.bls12_381_G2_element( bls12_381_G2_scalarMul( n, G2 ) ));
     }
     bls12_381_G2_equal( a: CEKValue, b: CEKValue ): ConstOrErr
     {
@@ -2077,7 +2077,7 @@ export class BnCEK
             cpu: f.cpu.at( BLS_G2_SIZE, BLS_G2_SIZE )
         });
         
-        return CEKConst.bool( bls12_381_G2_equal( fst, snd ) );
+        return constOrErr(() => CEKConst.bool( bls12_381_G2_equal( fst, snd ) ));
     }
     bls12_381_G2_hashToGroup( a: CEKValue, b: CEKValue ): ConstOrErr
     {
@@ -2233,9 +2233,9 @@ export class BnCEK
             cpu: f.cpu.at( sb )
         });
 
-        return CEKConst.byteString(
+        return constOrErr(() => CEKConst.byteString(
             new ByteString( keccak_256( b.toBuffer() ) )
-        );
+        ));
     }
     blake2b_224( a: CEKValue ): ConstOrErr
     {
@@ -2252,9 +2252,9 @@ export class BnCEK
             cpu: f.cpu.at( sb )
         });
 
-        return CEKConst.byteString(
+        return constOrErr(() => CEKConst.byteString(
             new ByteString( blake2b_224( b.toBuffer() ) )
-        );
+        ));
     }
     integerToByteString( a: CEKValue, b: CEKValue, c: CEKValue ): ConstOrErr
     {
