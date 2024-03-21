@@ -10,12 +10,11 @@ import { CEKHeap } from "../CEKHeap";
 import { CEKSteps, ComputeStep, ReturnStep } from "../CEKSteps";
 import { CEKDelay } from "../CEKValue/CEKDelay";
 import { CEKLambda } from "../CEKValue/CEKLambda";
-import { ScriptType } from "../utils/ScriptType";
-import { costModelV2ToBuiltinCosts, BuiltinCostsOf } from "./BuiltinCosts/BuiltinCosts";
+import { BuiltinCostsOf, costModelV3ToBuiltinCosts } from "./BuiltinCosts/BuiltinCosts";
 import { ExBudget } from "./ExBudget";
 import { MachineCosts, costModelToMachineCosts } from "./MachineCosts";
-import { defineReadOnlyHiddenProperty, defineReadOnlyProperty } from "@harmoniclabs/obj-utils";
-import { AnyV1CostModel, AnyV2CostModel, costModelV1ToFakeV2, defaultV2Costs, isCostModelsV1, isCostModelsV2, toCostModelV2 } from "@harmoniclabs/cardano-costmodels-ts";
+import { defineReadOnlyHiddenProperty } from "@harmoniclabs/obj-utils";
+import { AnyV1CostModel, AnyV2CostModel, AnyV3CostModel, costModelV1ToFakeV3, costModelV2ToFakeV3, defaultV3Costs, isCostModelsV1, isCostModelsV2, isCostModelsV3, toCostModelV3 } from "@harmoniclabs/cardano-costmodels-ts";
 import { ConstrFrame } from "../CEKFrames/ConstrFrame";
 import { CEKValue, isCEKValue } from "../CEKValue";
 import { CaseFrame } from "../CEKFrames/CaseFrame";
@@ -23,43 +22,22 @@ import { CEKError } from "../CEKValue/CEKError";
 import { CEKConst } from "../CEKValue/CEKConst";
 import { CEKConstr } from "../CEKValue/CEKConstr";
 
-export type MachineVersionV1 = ScriptType.PlutusV1;
-export type MachineVersionV2 = ScriptType.PlutusV2;
-
-export const machineVersionV1 = ScriptType.PlutusV1 as const;
-export const machineVersionV2 = ScriptType.PlutusV2 as const;
-
-export type MachineVersion = MachineVersionV1 | MachineVersionV2
-
-function isMachineVersion( something: any ): something is MachineVersion
-{
-    return something === ScriptType.PlutusV1 || something === ScriptType.PlutusV2;
-}
-
-type CostModelOf<V extends MachineVersion> =
-    V extends ScriptType.PlutusV1 ? AnyV1CostModel :    
-    V extends ScriptType.PlutusV2 ? AnyV2CostModel :
-    never;
-
 export type SrcMap = { [node_index: number]: string };
 
-export class Machine<V extends MachineVersion = MachineVersion>
+export class Machine
 {
-    readonly version!: V;
-
-    constructor(
-        version: V,
-        costmodel: CostModelOf<V>
-    )
+    constructor( costmodel: AnyV1CostModel | AnyV2CostModel | AnyV3CostModel )
     {
-        if( !isMachineVersion( version ) ) throw new Error("invalid MachineVersion");
-        defineReadOnlyProperty( this, "version", version );
-
         const isV1 = isCostModelsV1( costmodel );
-        if( !isV1 && !isCostModelsV2( costmodel ) ) throw new Error("invalid machine costs");
+        const isV2 = isCostModelsV2( costmodel );
+        const isV3 = isCostModelsV3( costmodel );
+        if(!( isV1 || isV2 || isV3 )) throw new Error("invalid machine costs");
         
-        const costs = isV1 ? costModelV1ToFakeV2( costmodel ) : toCostModelV2( costmodel );
-        defineReadOnlyHiddenProperty( this, "getBuiltinCostFuction", costModelV2ToBuiltinCosts( costs ) );
+        const costs = isV1 ? costModelV1ToFakeV3( costmodel ) :
+            isV2 ? costModelV2ToFakeV3( costmodel ) :
+            toCostModelV3( costmodel );
+
+        defineReadOnlyHiddenProperty( this, "getBuiltinCostFuction", costModelV3ToBuiltinCosts( costs ) );
         defineReadOnlyHiddenProperty( this, "machineCosts", costModelToMachineCosts( costs ) );
     }
 
@@ -68,12 +46,7 @@ export class Machine<V extends MachineVersion = MachineVersion>
         srcmap: SrcMap | undefined = undefined
     ): CEKValue
     {
-        return (
-            new Machine(
-                ScriptType.PlutusV2,
-                defaultV2Costs
-            )
-        ).eval( _term, srcmap ).result;
+        return new Machine( defaultV3Costs ).eval( _term, srcmap ).result;
     }
 
     static eval(
@@ -81,12 +54,7 @@ export class Machine<V extends MachineVersion = MachineVersion>
         srcmap: SrcMap | undefined = undefined
     ): { result: CEKValue, budgetSpent: ExBudget, logs: string[] }
     {
-        return (
-            new Machine(
-                ScriptType.PlutusV2,
-                defaultV2Costs
-            )
-        ).eval( _term, srcmap );
+        return new Machine( defaultV3Costs ).eval( _term, srcmap );
     }
 
     eval(
