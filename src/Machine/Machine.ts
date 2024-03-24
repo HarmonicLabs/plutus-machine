@@ -31,11 +31,13 @@ export class Machine
         const isV1 = isCostModelsV1( costmodel );
         const isV2 = isCostModelsV2( costmodel );
         const isV3 = isCostModelsV3( costmodel );
-        if(!( isV1 || isV2 || isV3 )) throw new Error("invalid machine costs");
+        if(!( isV3 || isV2 || isV1 )) throw new Error("invalid machine costs");
         
-        const costs = isV1 ? costModelV1ToFakeV3( costmodel ) :
+        // ALWAYS CHECK LATEST VERSION FIRST
+        const costs = isV3 ? toCostModelV3( costmodel ) :
             isV2 ? costModelV2ToFakeV3( costmodel ) :
-            toCostModelV3( costmodel );
+            isV1 ? costModelV1ToFakeV3( costmodel ) :
+            defaultV3Costs; // never; we throw before
 
         defineReadOnlyHiddenProperty( this, "getBuiltinCostFuction", costModelV3ToBuiltinCosts( costs ) );
         defineReadOnlyHiddenProperty( this, "machineCosts", costModelToMachineCosts( costs ) );
