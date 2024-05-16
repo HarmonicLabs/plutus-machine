@@ -16,11 +16,11 @@ export class CEKError
         return new CEKError(this.msg, this.addInfos);
     }
 
-    static fromUplc( uplc: ErrorUPLC ): CEKError
+    static fromUplc( uplc: ErrorUPLC, addInfos?: any ): CEKError
     {
         return new CEKError(
-            uplc.msg,
-            uplc.addInfos
+            uplc.msg ?? "explicit error from uplc",
+            uplc.addInfos ?? addInfos
         );
     }
 }

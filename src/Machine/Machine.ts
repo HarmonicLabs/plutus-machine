@@ -175,7 +175,8 @@ export class Machine
             if( term instanceof ErrorUPLC )
             {
                 defineCallStack( term );
-                steps.push( new ReturnStep( CEKError.fromUplc( term ) ) );
+                // console.log( term );
+                steps.push( new ReturnStep( CEKError.fromUplc( term, (frames as any)._frames ) ) );
                 return;
             }
     
