@@ -1,4 +1,4 @@
-import type { CEKValue } from ".";
+import type { CEKValue } from "./CEKValue";
 
 export class CEKConstr
 {

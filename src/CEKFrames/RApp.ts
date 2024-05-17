@@ -1,7 +1,7 @@
 import { defineReadOnlyProperty } from "@harmoniclabs/obj-utils";
 import { UPLCTerm } from "@harmoniclabs/uplc";
 import { CEKEnv } from "../CEKEnv";
-import { CEKValue, isCEKValue } from "../CEKValue";
+import { CEKValue, isCEKValue } from "../CEKValue/CEKValue";
 
 export class RApp
 {

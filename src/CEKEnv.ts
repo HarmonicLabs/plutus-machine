@@ -1,6 +1,6 @@
 import { UPLCTerm } from "@harmoniclabs/uplc";
 import { CEKHeap } from "./CEKHeap";
-import { CEKValue } from "./CEKValue";
+import { CEKValue } from "./CEKValue/CEKValue";
 
 export class CEKEnv
 {

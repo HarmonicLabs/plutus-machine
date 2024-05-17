@@ -1,4 +1,4 @@
-import { CEKValue, eqCEKValue } from "../CEKValue";
+import { CEKValue, eqCEKValue } from "../CEKValue/CEKValue";
 
 
 export class CEKHeap

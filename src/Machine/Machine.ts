@@ -16,7 +16,7 @@ import { MachineCosts, costModelToMachineCosts } from "./MachineCosts";
 import { defineReadOnlyHiddenProperty } from "@harmoniclabs/obj-utils";
 import { AnyV1CostModel, AnyV2CostModel, AnyV3CostModel, costModelV1ToFakeV3, costModelV2ToFakeV3, defaultV3Costs, isCostModelsV1, isCostModelsV2, isCostModelsV3, toCostModelV3 } from "@harmoniclabs/cardano-costmodels-ts";
 import { ConstrFrame } from "../CEKFrames/ConstrFrame";
-import { CEKValue, isCEKValue } from "../CEKValue";
+import { CEKValue, isCEKValue } from "../CEKValue/CEKValue";
 import { CaseFrame } from "../CEKFrames/CaseFrame";
 import { CEKError } from "../CEKValue/CEKError";
 import { CEKConst } from "../CEKValue/CEKConst";

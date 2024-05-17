@@ -10,7 +10,7 @@ import { PartialBuiltin } from "./PartialBuiltin";
 import { BlsG1, BlsG2, BlsResult, blake2b, blake2b_224, bls12_381_G1_add, bls12_381_G1_compress, bls12_381_G1_equal, bls12_381_G1_hashToGroup, bls12_381_G1_neg, bls12_381_G1_scalarMul, bls12_381_G1_uncompress, bls12_381_G2_add, bls12_381_G2_compress, bls12_381_G2_equal, bls12_381_G2_hashToGroup, bls12_381_G2_neg, bls12_381_G2_scalarMul, bls12_381_G2_uncompress, bls12_381_finalVerify, bls12_381_millerLoop, bls12_381_mulMlResult, byte, isBlsG1, isBlsG2, isBlsResult, keccak_256, sha2_256, sha3, verifyEcdsaSecp256k1Signature, verifyEd25519Signature, verifySchnorrSecp256k1Signature } from "@harmoniclabs/crypto";
 import { CEKError } from "../CEKValue/CEKError";
 import { CEKConst } from "../CEKValue/CEKConst";
-import { CEKValue } from "../CEKValue";
+import { CEKValue } from "../CEKValue/CEKValue";
 
 function intToSize( n: bigint ): bigint
 {
