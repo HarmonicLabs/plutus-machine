@@ -1,5 +1,5 @@
 import { forceBigUInt } from "@harmoniclabs/biguint";
-import { AnyV2CostModel, toCostModelV2, CostModelPlutusV2, AnyV1CostModel, AnyV3CostModel, toCostModelV3, isCostModelsV1, costModelV1ToFakeV3, costModelV2ToFakeV3, isCostModelsV2, CostModelPlutusV3 } from "@harmoniclabs/cardano-costmodels-ts";
+import { AnyV2CostModel, toCostModelV2, CostModelPlutusV2, AnyV1CostModel, AnyV3CostModel, toCostModelV3, isCostModelsV1, costModelV1ToFakeV3, costModelV2ToFakeV3, isCostModelsV2, CostModelPlutusV3, isCostModelsV3 } from "@harmoniclabs/cardano-costmodels-ts";
 import { ExBudget } from "./ExBudget";
 import { definePropertyIfNotPresent } from "@harmoniclabs/obj-utils";
 
@@ -58,9 +58,11 @@ export const defaultV3MachineCosts: MachineCosts = Object.freeze({
 export function costModelToMachineCosts( costMdls: AnyV1CostModel | AnyV2CostModel | AnyV3CostModel ): MachineCosts
 {
     const costs =
-    isCostModelsV1( costMdls ) ? costModelV1ToFakeV3({ ...costMdls }) :
+    // always check latest version first
+    isCostModelsV3( costMdls ) ? toCostModelV3({ ...costMdls }) :
     isCostModelsV2( costMdls ) ? costModelV2ToFakeV3({ ...costMdls }) :
-    toCostModelV3( costMdls );
+    costModelV1ToFakeV3({ ...costMdls });
+    
     const result = {};
 
     type CekCostKey = keyof CostModelPlutusV3 & `cek${string}`;

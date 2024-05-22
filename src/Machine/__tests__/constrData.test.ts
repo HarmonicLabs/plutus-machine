@@ -18,6 +18,6 @@ describe("constrData execution", () => {
         const res = Machine.eval( term );
 
         expect( res.result ).toEqual( CEKConst.data( new DataConstr(0,[]) ) );
-        console.log( res.budgetSpent.toJson() )
+        // console.log( res.budgetSpent.toJson() )
     })
 })

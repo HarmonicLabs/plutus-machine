@@ -9,8 +9,7 @@ test("contract", () => {
 
     const uplc = UPLCDecoder.parse( bytes ).body;
 
-    console.log( prettyUPLC( uplc ) )
-
+    // console.log( prettyUPLC( uplc ) )
     
     const datum = UPLCConst.data(
         dataFromCbor(
