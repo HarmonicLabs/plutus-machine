@@ -1,6 +1,6 @@
 {
   "name": "@harmoniclabs/plutus-machine",
-  "version": "2.0.0-dev3",
+  "version": "2.0.0-dev4",
   "description": "",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -33,11 +33,11 @@
   },
   "homepage": "https://github.com/HarmonicLabs/plutus-machine#readme",
   "dependencies": {
-    "@harmoniclabs/bigint-utils": "^1.0.0",
-    "@harmoniclabs/cardano-costmodels-ts": "^1.1.0",
-    "@harmoniclabs/crypto": "^0.2.4",
     "@harmoniclabs/obj-utils": "^1.0.0",
-    "@harmoniclabs/uint8array-utils": "^1.0.0"
+    "@harmoniclabs/uint8array-utils": "^1.0.0",
+    "@harmoniclabs/crypto": "^0.2.4",
+    "@harmoniclabs/bigint-utils": "^1.0.0",
+    "@harmoniclabs/cardano-costmodels-ts": "^1.2.0-dev1"
   },
   "peerDependencies": {
     "@harmoniclabs/bytestring": "^1.0.0",

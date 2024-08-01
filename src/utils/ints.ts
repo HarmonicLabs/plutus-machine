@@ -10,7 +10,7 @@ export function canBeUInteger( something: any ): something is (number | bigint)
     );
 }
 
-export function forceBigUInt( toForce: CanBeUInteger ): bigint
+export function BigInt( toForce: CanBeUInteger ): bigint
 {
     if( !canBeUInteger( toForce ) )
     {

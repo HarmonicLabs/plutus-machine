@@ -1,5 +1,4 @@
-import { forceBigUInt } from "@harmoniclabs/biguint";
-import { AnyV2CostModel, toCostModelV2, CostModelPlutusV2, AnyV1CostModel, AnyV3CostModel, toCostModelV3, isCostModelsV1, costModelV1ToFakeV3, costModelV2ToFakeV3, isCostModelsV2, CostModelPlutusV3, isCostModelsV3 } from "@harmoniclabs/cardano-costmodels-ts";
+import { AnyV2CostModel, AnyV1CostModel, AnyV3CostModel, toCostModelV3, costModelV1ToFakeV3, costModelV2ToFakeV3, isCostModelsV2, CostModelPlutusV3, isCostModelsV3 } from "@harmoniclabs/cardano-costmodels-ts";
 import { ExBudget } from "./ExBudget";
 import { definePropertyIfNotPresent } from "@harmoniclabs/obj-utils";
 
@@ -44,15 +43,15 @@ export const defaultV2MachineCosts: MachineCosts = Object.freeze({
 
 export const defaultV3MachineCosts: MachineCosts = Object.freeze({
     startup:        new ExBudget({ mem: 100, cpu: 100 }),
-    var:            new ExBudget({ mem: 100, cpu: 23000 }),
-    constant:       new ExBudget({ mem: 100, cpu: 23000 }),
-    lam:            new ExBudget({ mem: 100, cpu: 23000 }),
-    delay:          new ExBudget({ mem: 100, cpu: 23000 }),
-    force:          new ExBudget({ mem: 100, cpu: 23000 }),
-    apply:          new ExBudget({ mem: 100, cpu: 23000 }),
-    builtinNode:    new ExBudget({ mem: 100, cpu: 23000 }),
-    constr:         new ExBudget({ mem: 100, cpu: 23000 }),
-    case:           new ExBudget({ mem: 100, cpu: 23000 }),
+    var:            new ExBudget({ mem: 100, cpu: 16000 }),
+    constant:       new ExBudget({ mem: 100, cpu: 16000 }),
+    lam:            new ExBudget({ mem: 100, cpu: 16000 }),
+    delay:          new ExBudget({ mem: 100, cpu: 16000 }),
+    force:          new ExBudget({ mem: 100, cpu: 16000 }),
+    apply:          new ExBudget({ mem: 100, cpu: 16000 }),
+    builtinNode:    new ExBudget({ mem: 100, cpu: 16000 }),
+    constr:         new ExBudget({ mem: 100, cpu: 16000 }),
+    case:           new ExBudget({ mem: 100, cpu: 16000 }),
 });
 
 export function costModelToMachineCosts( costMdls: AnyV1CostModel | AnyV2CostModel | AnyV3CostModel ): MachineCosts
@@ -72,8 +71,8 @@ export function costModelToMachineCosts( costMdls: AnyV1CostModel | AnyV2CostMod
     function add( k: keyof MachineCosts, cpuKey: CekCpuCostKey, memKey: CekMemCostKey ): void
     {
         const val = new ExBudget({
-            mem: forceBigUInt( costs[memKey] ),
-            cpu: forceBigUInt( costs[cpuKey] )
+            mem: BigInt( costs[memKey] ),
+            cpu: BigInt( costs[cpuKey] )
         });
 
         definePropertyIfNotPresent(

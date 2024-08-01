@@ -1,4 +1,4 @@
-import { CanBeUInteger, forceBigUInt } from "@harmoniclabs/biguint";
+import type { CanBeUInteger } from "@harmoniclabs/biguint";
 import { ToCbor, CborString, Cbor, CborArray, CborUInt, CanBeCborString, forceCborString, CborObj } from "@harmoniclabs/cbor";
 import { definePropertyIfNotPresent, defineReadOnlyProperty, isObject } from "@harmoniclabs/obj-utils";
 
@@ -27,19 +27,19 @@ export class ExBudget
 
         if( typeof args_or_cpu === "object" )
         {
-            _cpu = forceBigUInt( args_or_cpu.cpu );
-            _mem = forceBigUInt( args_or_cpu.mem );
+            _cpu = BigInt( args_or_cpu.cpu );
+            _mem = BigInt( args_or_cpu.mem );
         }
         else
         {
-            _cpu = forceBigUInt( args_or_cpu );
+            _cpu = BigInt( args_or_cpu );
             if( mem === undefined )
             {
                 throw new Error(
                     'missing "mem" paramter while cosntructing "ExBudget" instance'
                 );
             }
-            _mem = forceBigUInt( mem );
+            _mem = BigInt( mem );
         }
 
         definePropertyIfNotPresent(
@@ -65,14 +65,14 @@ export class ExBudget
 
         defineReadOnlyProperty(
             this, "add", (other: Readonly<IExBudget>): void => {
-                _cpu = _cpu + forceBigUInt( other.cpu );
-                _mem = _mem + forceBigUInt( other.mem );
+                _cpu = _cpu + BigInt( other.cpu );
+                _mem = _mem + BigInt( other.mem );
             }
         );
         defineReadOnlyProperty(
             this, "sub", (other: Readonly<IExBudget>): void => {
-                _cpu = _cpu - forceBigUInt( other.cpu );
-                _mem = _mem - forceBigUInt( other.mem );
+                _cpu = _cpu - BigInt( other.cpu );
+                _mem = _mem - BigInt( other.mem );
             }
         );
 
@@ -151,7 +151,12 @@ export class ExBudget
         return {
             steps: this.cpu.toString(),
             memory: this.mem.toString()
-        }
+        };
+    }
+    /** standard interface for `JSON.stringify` */
+    toJSON()
+    {
+        return this.toJson();
     }
 
     static fromJson( stuff: ExBudgetJson ): ExBudget

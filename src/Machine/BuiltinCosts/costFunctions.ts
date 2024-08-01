@@ -269,6 +269,66 @@ export class ConstYOrLinearZ extends BaseLinear
     }
 }
 
+/**
+ * function in the form of
+ * c00 + c10*x + c01*y + c20*x*x + c11*x*y + c02 * y
+ */
+class BaseDoubleQuadratic
+{
+    readonly c00: bigint;
+    readonly c01: bigint;
+    readonly c02: bigint;
+    readonly c10: bigint;
+    readonly c11: bigint;
+    readonly c20: bigint;
+
+    constructor(
+        c00: bigint,
+        c01: bigint,
+        c02: bigint,
+        c10: bigint,
+        c11: bigint,
+        c20: bigint
+    )
+    {
+        defineReadOnlyProperty( this, "c00", BigInt( c00 ) );
+        defineReadOnlyProperty( this, "c01", BigInt( c01 ) );
+        defineReadOnlyProperty( this, "c02", BigInt( c02 ) );
+        defineReadOnlyProperty( this, "c10", BigInt( c10 ) );
+        defineReadOnlyProperty( this, "c11", BigInt( c11 ) );
+        defineReadOnlyProperty( this, "c20", BigInt( c20 ) );
+    }
+}
+
+export class ConstMinOrQuadratic2InXY extends BaseDoubleQuadratic
+    implements CostFunc<2>
+{
+    readonly constant: bigint;
+    readonly minimum: bigint;
+    constructor(
+        constant: bigint,
+        minimum: bigint,
+        c00: bigint,
+        c01: bigint,
+        c02: bigint,
+        c10: bigint,
+        c11: bigint,
+        c20: bigint
+    )
+    {
+        super( c00, c01, c02, c10, c11, c20 );
+        defineReadOnlyProperty( this, "constant", BigInt( constant ) );
+        defineReadOnlyProperty( this, "minimum", BigInt( minimum ) );
+    }
+    at(x: bigint, y: bigint)
+    {
+        if( x < y ) return this.constant;
+        const { c00, c01, c02, c10, c11, c20, minimum } = this;
+        const real = c00 + c10*x + c01*y + c20*x*x + c11*x*y + c02*y;
+        return real < minimum ? minimum : real;
+    };
+}
+
 export type OneArg
     = FixedCost
     | Linear1;
@@ -285,7 +345,8 @@ export type TwoArgs
     | LinearOnEqualXY
     | YGtEqOrConst<CostFunc<2>>
     | XGtEqOrConst<CostFunc<2>>
-    | Quadratic2InY;
+    | Quadratic2InY
+    | ConstMinOrQuadratic2InXY
 
 export type ThreeArgs
     = FixedCost
