@@ -121,7 +121,7 @@ export class Machine
                     thing, "__call_stack__", {
                         value: Object.freeze( frames.callStack() ),
                         enumerable: true,
-                        writable: false,
+                        writable: true,
                         configurable: false
                     }
                 );
