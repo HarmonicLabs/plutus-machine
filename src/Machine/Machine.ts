@@ -13,7 +13,7 @@ import { CEKLambda } from "../CEKValue/CEKLambda";
 import { BuiltinCostsOf, costModelV3ToBuiltinCosts } from "./BuiltinCosts/BuiltinCosts";
 import { ExBudget } from "./ExBudget";
 import { MachineCosts, costModelToMachineCosts } from "./MachineCosts";
-import { defineReadOnlyHiddenProperty } from "@harmoniclabs/obj-utils";
+import { defineReadOnlyHiddenProperty, isObject } from "@harmoniclabs/obj-utils";
 import { AnyV1CostModel, AnyV2CostModel, AnyV3CostModel, costModelV1ToFakeV3, costModelV2ToFakeV3, defaultV3Costs, isCostModelsV1, isCostModelsV2, isCostModelsV3, toCostModelV3 } from "@harmoniclabs/cardano-costmodels-ts";
 import { ConstrFrame } from "../CEKFrames/ConstrFrame";
 import { CEKValue, isCEKValue } from "../CEKValue/CEKValue";
@@ -108,15 +108,22 @@ export class Machine
             return _poppedFrame = frames.pop();
         }
 
-        function defineCallStack( thing: any )
+        function defineCallStack( thing: any ): void
         {
-            if( !Array.isArray( thing.__call_stack__ ) )
-            {
-                const hasPoppedFrame = isFrame( _poppedFrame );
+            if( !isObject( thing ) ) return;
+            if(
+                typeof Object.isExtensible === "function" &&
+                !Object.isExtensible( thing )
+            ) return;
+            
+            if( !Array.isArray( thing.__call_stack__ ) ) return;
 
-                // re insert top frame for call stack to include it.
-                if( hasPoppedFrame ) frames.push( _poppedFrame );
-                
+            const hasPoppedFrame = isFrame( _poppedFrame );
+
+            // re insert top frame for call stack to include it.
+            if( hasPoppedFrame ) frames.push( _poppedFrame );
+
+            try {
                 Object.defineProperty(
                     thing, "__call_stack__", {
                         value: Object.freeze( frames.callStack() ),
@@ -125,10 +132,10 @@ export class Machine
                         configurable: false
                     }
                 );
+            } catch {} // object was not extensible, we don't care
 
-                // re-remove the top frame
-                if( hasPoppedFrame ) frames.pop();
-            }
+            // re-remove the top frame
+            if( hasPoppedFrame ) frames.pop();
         }
     
         const uplc = isUPLCTerm( _term ) ? _term : _term.toUPLC(0);
