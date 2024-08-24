@@ -73,7 +73,7 @@ export class Machine
 
         // new budget for each call
         const budget = new ExBudget({ mem: 0, cpu: 0 });
-        const spend = budget.add;
+        const spend = budget.add.bind( budget );
 
         const logs: string[] = [];
 
@@ -297,6 +297,7 @@ export class Machine
             // 𝑠; 𝜌 ⊳ (case 𝑁 𝑀[])↦ (case _ (𝑀[], 𝜌))⋅𝑠; 𝜌 ⊳ 𝑁
             if( term instanceof Case )
             {
+                budget.add( machineCosts.case );
                 // (case _ (𝑀[], 𝜌))⋅𝑠;
                 frames.push(
                     new CaseFrame(

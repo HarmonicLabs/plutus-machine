@@ -15,71 +15,42 @@ export interface ExBudgetJson {
 export class ExBudget
     implements IExBudget, ToCbor
 {
-    readonly cpu!: bigint;
-    readonly mem!: bigint;
+    private _cpu!: bigint;
+    get cpu(): bigint { return this._cpu; }
+
+    private _mem!: bigint;
+    get mem(): bigint { return this._mem; }
 
     constructor( args: IExBudget)
     constructor( cpu: CanBeUInteger, mem: CanBeUInteger )
     constructor( args_or_cpu: IExBudget | CanBeUInteger, mem?: CanBeUInteger | undefined )
     {
-        let _cpu: bigint;
-        let _mem: bigint;
-
         if( typeof args_or_cpu === "object" )
         {
-            _cpu = BigInt( args_or_cpu.cpu );
-            _mem = BigInt( args_or_cpu.mem );
+            this._cpu = BigInt( args_or_cpu.cpu );
+            this._mem = BigInt( args_or_cpu.mem );
         }
         else
         {
-            _cpu = BigInt( args_or_cpu );
+            this._cpu = BigInt( args_or_cpu );
             if( mem === undefined )
             {
                 throw new Error(
                     'missing "mem" paramter while cosntructing "ExBudget" instance'
                 );
             }
-            _mem = BigInt( mem );
+            this._mem = BigInt( mem );
         }
-
-        definePropertyIfNotPresent(
-            this,
-            "cpu",
-            {
-                get: () => _cpu,
-                set: ( ..._whatever: any[] ) => {},
-                enumerable: true,
-                configurable: false 
-            }
-        );
-        definePropertyIfNotPresent(
-            this,
-            "mem",
-            {
-                get: () => _mem,
-                set: ( ..._whatever: any[] ) => {},
-                enumerable: true,
-                configurable: false 
-            }
-        );
-
-        defineReadOnlyProperty(
-            this, "add", (other: Readonly<IExBudget>): void => {
-                _cpu = _cpu + BigInt( other.cpu );
-                _mem = _mem + BigInt( other.mem );
-            }
-        );
-        defineReadOnlyProperty(
-            this, "sub", (other: Readonly<IExBudget>): void => {
-                _cpu = _cpu - BigInt( other.cpu );
-                _mem = _mem - BigInt( other.mem );
-            }
-        );
-
     }
 
-    readonly add!: ( other: Readonly<IExBudget> ) => void
-    readonly sub!: ( other: Readonly<IExBudget> ) => void
+    add(other: Readonly<IExBudget>): void {
+        this._cpu = this._cpu + BigInt( other.cpu );
+        this._mem = this._mem + BigInt( other.mem );
+    }
+    sub(other: Readonly<IExBudget>): void {
+        this._cpu = this._cpu - BigInt( other.cpu );
+        this._mem = this._mem - BigInt( other.mem );
+    }
 
     static add( a: ExBudget, b: ExBudget ): ExBudget
     {
