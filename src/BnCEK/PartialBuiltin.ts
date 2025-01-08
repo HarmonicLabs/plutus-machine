@@ -115,6 +115,19 @@ export class PartialBuiltin
             case UPLCBuiltinTag.integerToByteString:                return 3;
             case UPLCBuiltinTag.byteStringToInteger:                return 2;
 
+            // plomin
+            case UPLCBuiltinTag.andByteString:                      return 3;
+            case UPLCBuiltinTag.orByteString:                       return 3;
+            case UPLCBuiltinTag.xorByteString:                      return 3;
+            case UPLCBuiltinTag.complementByteString:               return 1;
+            case UPLCBuiltinTag.readBit:                            return 2;
+            case UPLCBuiltinTag.writeBits:                          return 3;
+            case UPLCBuiltinTag.replicateByte:                      return 2;
+            case UPLCBuiltinTag.shiftByteString:                    return 2;
+            case UPLCBuiltinTag.rotateByteString:                   return 2;
+            case UPLCBuiltinTag.countSetBits:                       return 1;
+            case UPLCBuiltinTag.findFirstSetBit:                    return 1;
+            case UPLCBuiltinTag.ripemd_160:                         return 1;
             
             default:
                 throw new Error("unrecognized builtin: " + tag);

@@ -7,10 +7,17 @@ import { ConstValue, isConstValueInt, UPLCTerm, ConstType, constTypeEq, constT, 
 import { BuiltinCostsOf } from "../Machine/BuiltinCosts/BuiltinCosts";
 import { ExBudget } from "../Machine/ExBudget";
 import { PartialBuiltin } from "./PartialBuiltin";
-import { BlsG1, BlsG2, BlsResult, blake2b, blake2b_224, bls12_381_G1_add, bls12_381_G1_compress, bls12_381_G1_equal, bls12_381_G1_hashToGroup, bls12_381_G1_neg, bls12_381_G1_scalarMul, bls12_381_G1_uncompress, bls12_381_G2_add, bls12_381_G2_compress, bls12_381_G2_equal, bls12_381_G2_hashToGroup, bls12_381_G2_neg, bls12_381_G2_scalarMul, bls12_381_G2_uncompress, bls12_381_finalVerify, bls12_381_millerLoop, bls12_381_mulMlResult, byte, isBlsG1, isBlsG2, isBlsResult, keccak_256, sha2_256, sha3, verifyEcdsaSecp256k1Signature, verifyEd25519Signature, verifySchnorrSecp256k1Signature } from "@harmoniclabs/crypto";
+import { BlsG1, BlsG2, BlsResult, blake2b, blake2b_224, bls12_381_G1_add, bls12_381_G1_compress, bls12_381_G1_equal, bls12_381_G1_hashToGroup, bls12_381_G1_neg, bls12_381_G1_scalarMul, bls12_381_G1_uncompress, bls12_381_G2_add, bls12_381_G2_compress, bls12_381_G2_equal, bls12_381_G2_hashToGroup, bls12_381_G2_neg, bls12_381_G2_scalarMul, bls12_381_G2_uncompress, bls12_381_finalVerify, bls12_381_millerLoop, bls12_381_mulMlResult, byte, isBlsG1, isBlsG2, isBlsResult, keccak_256, sha2_256, sha3, verifyEcdsaSecp256k1Signature, verifyEd25519Signature, verifySchnorrSecp256k1Signature, ripemd160 } from "@harmoniclabs/crypto";
 import { CEKError } from "../CEKValue/CEKError";
 import { CEKConst } from "../CEKValue/CEKConst";
 import { CEKValue } from "../CEKValue/CEKValue";
+import { read } from "fs";
+import { shiftU8Arr } from "./impl/shiftU8Arr";
+import { rotateU8Arr } from "./impl/rotateU8Arr";
+import { countSetBits } from "./impl/countSetBits";
+import { findFirstSetBit } from "./impl/findFirstSetBit";
+import { readBit } from "./impl/readBit";
+import { writeBit } from "./impl/writeBit";
 
 function intToSize( n: bigint ): bigint
 {
@@ -162,6 +169,14 @@ function getInt( a: CEKValue ): bigint | undefined
 {
     if( !isConstOfType( a, constT.int ) ) return undefined;
     return BigInt( a.value as any );
+}
+
+function getIntNumFromConstValue( a: ConstValue ): number | undefined
+{
+    if( !isConstValueInt( a ) ) return undefined;
+    const n = Number( a as any );
+    if( !Number.isSafeInteger( n ) ) return undefined;
+    return n;
 }
 
 function getInts( a: CEKValue, b: CEKValue ): ( { a: bigint,  b: bigint } | undefined )
@@ -453,6 +468,19 @@ export class BnCEK
 
             case UPLCBuiltinTag.byteStringToInteger                  : return (this.byteStringToInteger as any)( ...bn.args );
             case UPLCBuiltinTag.integerToByteString                  : return (this.integerToByteString as any)( ...bn.args );
+            // plomin
+            case UPLCBuiltinTag.andByteString                        : return (this.andByteString as any)( ...bn.args );
+            case UPLCBuiltinTag.orByteString                         : return (this.orByteString as any)( ...bn.args );
+            case UPLCBuiltinTag.xorByteString                        : return (this.xorByteString as any)( ...bn.args );
+            case UPLCBuiltinTag.complementByteString                 : return (this.complementByteString as any)( ...bn.args );
+            case UPLCBuiltinTag.readBit                              : return (this.readBit as any)( ...bn.args );
+            case UPLCBuiltinTag.writeBits                            : return (this.writeBits as any)( ...bn.args );
+            case UPLCBuiltinTag.replicateByte                        : return (this.replicateByte as any)( ...bn.args );
+            case UPLCBuiltinTag.shiftByteString                      : return (this.shiftByteString as any)( ...bn.args );
+            case UPLCBuiltinTag.rotateByteString                     : return (this.rotateByteString as any)( ...bn.args );
+            case UPLCBuiltinTag.countSetBits                         : return (this.countSetBits as any)( ...bn.args );
+            case UPLCBuiltinTag.findFirstSetBit                      : return (this.findFirstSetBit as any)( ...bn.args );
+            case UPLCBuiltinTag.ripemd_160                           : return (this.ripemd_160 as any)( ...bn.args );
             
             default:
                 bn.tag; // check that is of type 'never'
@@ -2274,6 +2302,15 @@ export class BnCEK
             { bigEndian, size, c }
         );
 
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.integerToByteString );
+        const bSize = BOOL_SIZE;
+        const nSize = intToSize( size );
+        const nInt = intToSize( integer );
+        this.machineBudget.add({
+            mem: f.mem.at( bSize, nSize, nInt ),
+            cpu: f.cpu.at( bSize, nSize, nInt )
+        });
+
         return integerToByteString( bigEndian, size, integer );
     }
     byteStringToInteger( a: CEKValue, b: CEKValue ): ConstOrErr
@@ -2288,12 +2325,409 @@ export class BnCEK
             "integerToByteString :: second arg not bs", 
             { bigEndian, b }
         );
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.byteStringToInteger );
+        const bSize = BOOL_SIZE;
+        const bsSize = bsToSize( bs );
+        this.machineBudget.add({
+            mem: f.mem.at( bSize, bsSize ),
+            cpu: f.cpu.at( bSize, bsSize )
+        });
         
         return bytestringToInteger( bigEndian, bs );
     }
+
+    andByteString( a: CEKValue, b: CEKValue, c: CEKValue ): ConstOrErr
+    {
+        const shouldExtend = getBool( a );
+        if( shouldExtend === undefined ) return new CEKError(
+            "andByteString :: first arg not boolean",
+            { a, b, c }
+        );
+        let bs1 = getBS( b )?.toBuffer();
+        if( bs1 === undefined ) return new CEKError(
+            "andByteString :: second arg not bs",
+            { shouldExtend, b, c }
+        );
+        let bs2 = getBS( c )?.toBuffer();
+        if( bs2 === undefined ) return new CEKError(
+            "andByteString :: third arg not bs",
+            { shouldExtend, b, c }
+        );
+
+        let len = 0;
+
+        if( shouldExtend )
+        {
+            len = Math.max( bs1.length, bs2.length );
+            bs1 = bitwiseExtend( bs1, len, true );
+            bs2 = bitwiseExtend( bs2, len, true );
+        }
+        else // should truncate
+        {
+            len = Math.min( bs1.length, bs2.length );
+            bs1 = bitwiseTruncate( bs1, len );
+            bs2 = bitwiseTruncate( bs2, len );
+        }
+
+        const result = new Uint8Array( len );
+        for( let i = 0; i < len; i++ )
+        {
+            result[i] = bs1[i] & bs2[i];
+        }
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.andByteString );
+        const shouldExtendSize = BOOL_SIZE;
+        const bs1Size = bsToSize( bs1 );
+        const bs2Size = bsToSize( bs2 );
+        this.machineBudget.add({
+            mem: f.mem.at( shouldExtendSize, bs1Size, bs2Size ),
+            cpu: f.cpu.at( shouldExtendSize, bs1Size, bs2Size ) 
+        })
+
+        return CEKConst.byteString( new ByteString( result ) );
+    }
+    orByteString( a: CEKValue, b: CEKValue, c: CEKValue ): ConstOrErr
+    {
+        const shouldExtend = getBool( a );
+        if( shouldExtend === undefined ) return new CEKError(
+            "andByteString :: first arg not boolean",
+            { a, b, c }
+        );
+        let bs1 = getBS( b )?.toBuffer();
+        if( bs1 === undefined ) return new CEKError(
+            "andByteString :: second arg not bs",
+            { shouldExtend, b, c }
+        );
+        let bs2 = getBS( c )?.toBuffer();
+        if( bs2 === undefined ) return new CEKError(
+            "andByteString :: third arg not bs",
+            { shouldExtend, b, c }
+        );
+
+        let len = 0;
+
+        if( shouldExtend )
+        {
+            len = Math.max( bs1.length, bs2.length );
+            bs1 = bitwiseExtend( bs1, len, false );
+            bs2 = bitwiseExtend( bs2, len, false );
+        }
+        else // should truncate
+        {
+            len = Math.min( bs1.length, bs2.length );
+            bs1 = bitwiseTruncate( bs1, len );
+            bs2 = bitwiseTruncate( bs2, len );
+        }
+
+        const result = new Uint8Array( len );
+        for( let i = 0; i < len; i++ )
+        {
+            result[i] = bs1[i] | bs2[i];
+        }
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.orByteString );
+        const shouldExtendSize = BOOL_SIZE;
+        const bs1Size = bsToSize( bs1 );
+        const bs2Size = bsToSize( bs2 );
+        this.machineBudget.add({
+            mem: f.mem.at( shouldExtendSize, bs1Size, bs2Size ),
+            cpu: f.cpu.at( shouldExtendSize, bs1Size, bs2Size ) 
+        })
+
+        return CEKConst.byteString( new ByteString( result ) );
+    }
+    xorByteString( a: CEKValue, b: CEKValue, c: CEKValue ): ConstOrErr
+    {
+        const shouldExtend = getBool( a );
+        if( shouldExtend === undefined ) return new CEKError(
+            "andByteString :: first arg not boolean",
+            { a, b, c }
+        );
+        let bs1 = getBS( b )?.toBuffer();
+        if( bs1 === undefined ) return new CEKError(
+            "andByteString :: second arg not bs",
+            { shouldExtend, b, c }
+        );
+        let bs2 = getBS( c )?.toBuffer();
+        if( bs2 === undefined ) return new CEKError(
+            "andByteString :: third arg not bs",
+            { shouldExtend, b, c }
+        );
+
+        let len = 0;
+
+        if( shouldExtend )
+        {
+            len = Math.max( bs1.length, bs2.length );
+            bs1 = bitwiseExtend( bs1, len, true );
+            bs2 = bitwiseExtend( bs2, len, true );
+        }
+        else // should truncate
+        {
+            len = Math.min( bs1.length, bs2.length );
+            bs1 = bitwiseTruncate( bs1, len );
+            bs2 = bitwiseTruncate( bs2, len );
+        }
+
+        const result = new Uint8Array( len );
+        for( let i = 0; i < len; i++ )
+        {
+            result[i] = bs1[i] ^ bs2[i];
+        }
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.xorByteString );
+        const shouldExtendSize = BOOL_SIZE;
+        const bs1Size = bsToSize( bs1 );
+        const bs2Size = bsToSize( bs2 );
+        this.machineBudget.add({
+            mem: f.mem.at( shouldExtendSize, bs1Size, bs2Size ),
+            cpu: f.cpu.at( shouldExtendSize, bs1Size, bs2Size ) 
+        })
+
+        return CEKConst.byteString( new ByteString( result ) );
+    }
+    complementByteString( _bs: CEKValue ): ConstOrErr
+    {
+        const bs = getBS( _bs )?.toBuffer();
+        if( bs === undefined ) return new CEKError(
+            "complementByteString :: not bs",
+            { _bs }
+        );
+
+        const len = bs.length;
+        const result = new Uint8Array( len );
+        for( let i = 0; i < len; i++ )
+        {
+            result[i] = ~bs[i];
+        }
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.complementByteString );
+        const bsSize = bsToSize( bs );
+        this.machineBudget.add({
+            mem: f.mem.at( bsSize ),
+            cpu: f.cpu.at( bsSize )
+        });
+
+        return CEKConst.byteString( new ByteString( result ) );
+    }
+    // can fail
+    readBit( _bs: CEKValue, _i: CEKValue ): ConstOrErr
+    {
+        const bs = getBS( _bs )?.toBuffer();
+        if( bs === undefined ) return new CEKError(
+            "readBit :: not bs",
+            { _bs, _i }
+        );
+        const i = getInt( _i );
+        if( i === undefined ) return new CEKError(
+            "readBit :: not integer",
+            { bs, _i }
+        );
+
+        const result = readBit( bs, Number( i ) );
+        if( result instanceof CEKError ) return result;
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.readBit );
+        const bsSize = bsToSize( bs );
+        const iSize = intToSize( i );
+        this.machineBudget.add({
+            mem: f.mem.at( bsSize, iSize ),
+            cpu: f.cpu.at( bsSize, iSize )
+        });
+
+        return CEKConst.bool( result );
+    }
+    // can fail
+    writeBits( _bs: CEKValue, _idxs: CEKValue, _bit: CEKValue ): ConstOrErr
+    {
+        const bs = getBS( _bs )?.toBuffer();
+        if( bs === undefined ) return new CEKError(
+            "writeBits :: not bs",
+            { _bs, _idxs, _bit }
+        );
+        const idxs = getList( _idxs );
+        if( idxs === undefined ) return new CEKError(
+            "writeBits :: second arg not a list",
+            { bs, _idxs, _bit }
+        );
+        const bit = getBool( _bit );
+        if( bit === undefined ) return new CEKError(
+            "writeBits :: not boolean",
+            { bs, idxs, _bit }
+        );
+
+        const result = Uint8Array.prototype.slice.call( bs );
+        let elemIdx = 0;
+        for( const elem of idxs )
+        {
+            const i = getIntNumFromConstValue( elem );
+            if( i === undefined ) return new CEKError(
+                "writeBits :: list element not integer",
+                { bs, idxs, elem, elemIdx }
+            );
+            const res = writeBit( result, i, bit );
+            if( res instanceof CEKError ) return res;
+            elemIdx++;
+        }
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.writeBits );
+        const bsSize = bsToSize( bs );
+        const idxsSize = listToSize( idxs );
+        const bitSize = BOOL_SIZE;
+        this.machineBudget.add({
+            mem: f.mem.at( bsSize, idxsSize, bitSize ),
+            cpu: f.cpu.at( bsSize, idxsSize, bitSize )
+        });
+
+        return CEKConst.byteString( new ByteString( result ) );
+    }
+    // can fail
+    replicateByte( _len: CEKValue, _byte: CEKValue ): ConstOrErr
+    {
+        const len = getInt( _len );
+        if( len === undefined ) return new CEKError(
+            "replicateByte :: first arg not integer",
+            { _len, _byte }
+        );
+        const byte = getInt( _byte );
+        if( byte === undefined ) return new CEKError(
+            "replicateByte :: second arg not integer",
+            { len, _byte }
+        );
+
+        if( len < 0 || len > BYTESTRING_LIMIT_LEN_N ) return new CEKError(
+            "replicateByte :: invalid length",
+            { len, byte }
+        );
+        if( byte < 0 || byte > 255 ) return new CEKError(
+            "replicateByte :: invalid byte",
+            { len, byte }
+        );
+
+        const result = new Uint8Array( Number( len ) ).fill( Number( byte ) );
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.replicateByte );
+        const lenSize = intToSize( len );
+        const byteSize = intToSize( byte );
+        this.machineBudget.add({
+            mem: f.mem.at( lenSize, byteSize ),
+            cpu: f.cpu.at( lenSize, byteSize )
+        });
+
+        return CEKConst.byteString( new ByteString( result ) );
+    }
+    shiftByteString( _bs: CEKValue, _k: CEKValue ): ConstOrErr
+    {
+        const bs = getBS( _bs )?.toBuffer();
+        if( bs === undefined ) return new CEKError(
+            "shiftByteString :: not bs",
+            { _bs }
+        );
+        const k = getInt( _k );
+        if( k === undefined ) return new CEKError(
+            "shiftByteString :: not integer",
+            { bs, _k }
+        );
+
+        const result = shiftU8Arr( bs, Number( k ) );
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.shiftByteString );
+        const bsSize = bsToSize( bs );
+        const kSize = intToSize( k );
+        this.machineBudget.add({
+            mem: f.mem.at( bsSize, kSize ),
+            cpu: f.cpu.at( bsSize, kSize )
+        });
+
+        return CEKConst.byteString( new ByteString( result ) );
+    }
+    rotateByteString( _bs: CEKValue, _k: CEKValue ): ConstOrErr
+    {
+        const bs = getBS( _bs )?.toBuffer();
+        if( bs === undefined ) return new CEKError(
+            "shiftByteString :: not bs",
+            { _bs }
+        );
+        const k = getInt( _k );
+        if( k === undefined ) return new CEKError(
+            "shiftByteString :: not integer",
+            { bs, _k }
+        );
+
+        const result = rotateU8Arr( bs, Number( k ) );
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.rotateByteString );
+        const bsSize = bsToSize( bs );
+        const kSize = intToSize( k );
+        this.machineBudget.add({
+            mem: f.mem.at( bsSize, kSize ),
+            cpu: f.cpu.at( bsSize, kSize )
+        });
+
+        return CEKConst.byteString( new ByteString( result ) );
+    }
+    countSetBits( _bs: CEKValue ): ConstOrErr
+    {
+        const bs = getBS( _bs )?.toBuffer();
+        if( bs === undefined ) return new CEKError(
+            "countSetBits :: not bs",
+            { _bs }
+        );
+
+        const result = countSetBits( bs );
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.countSetBits );
+        const bsSize = bsToSize( bs );
+        this.machineBudget.add({
+            mem: f.mem.at( bsSize ),
+            cpu: f.cpu.at( bsSize )
+        });
+
+        return CEKConst.int( result );
+    }
+    findFirstSetBit( _bs: CEKValue ): ConstOrErr
+    {
+        const bs = getBS( _bs )?.toBuffer();
+        if( bs === undefined ) return new CEKError(
+            "findFirstSetBit :: not bs",
+            { _bs }
+        );
+
+        const result = findFirstSetBit( bs );
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.findFirstSetBit );
+        const bsSize = bsToSize( bs );
+        this.machineBudget.add({
+            mem: f.mem.at( bsSize ),
+            cpu: f.cpu.at( bsSize )
+        });
+
+        return CEKConst.int( result );
+    }
+    ripemd_160( _bs: CEKValue ): ConstOrErr
+    {
+        const bs = getBS( _bs )?.toBuffer();
+        if( bs === undefined ) return new CEKError(
+            "ripemd_160 :: not bs",
+            { _bs }
+        );
+
+        const result = ripemd160( bs );
+
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.ripemd_160 );
+        const bsSize = bsToSize( bs );
+        this.machineBudget.add({
+            mem: f.mem.at( bsSize ),
+            cpu: f.cpu.at( bsSize )
+        });
+
+        return CEKConst.byteString( new ByteString( result ) );
+    }
 }
 
-const INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH = BigInt( 8192 );
+const BYTESTRING_LIMIT_LEN_N = 8192;
+const INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH = BigInt( BYTESTRING_LIMIT_LEN_N );
 
 const _0n = BigInt( 0 );
 const _8n = BigInt( 8 );
@@ -2391,4 +2825,19 @@ function isValidUtf8(bytes: Uint8Array)
       return false;
     }
     return true;
-  }
+}
+
+function bitwiseTruncate( bs: Uint8Array, len: number ): Uint8Array
+{
+    if( bs.length <= len ) return bs;
+    return bs.slice( 0, len );
+}
+
+function bitwiseExtend( bs: Uint8Array, len: number, fill: boolean ): Uint8Array
+{
+    if( bs.length >= len ) return bs;
+    const newBs = new Uint8Array( len );
+    newBs.set( bs );
+    if( fill ) newBs.fill( 0xff, bs.length, len );
+    return newBs;
+}

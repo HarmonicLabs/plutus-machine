@@ -32,7 +32,7 @@ export class FixedCost implements CostFunc<1 | 2 | 3 | 6>, ConstantCostFunc
     readonly const!: bigint;
     constructor( constant: bigint )
     {
-        defineReadOnlyProperty( this, "const", BigInt( constant ) );
+        this.const = BigInt( constant );
     }
     at( ...xs: bigint[] ) { return this.const; }
 }
@@ -43,8 +43,8 @@ class BaseLinear
     readonly slope!: bigint;
     constructor( quote: bigint, slope: bigint )
     {
-        defineReadOnlyProperty( this, "quote", BigInt( quote ) );
-        defineReadOnlyProperty( this, "slope", BigInt( slope ) );
+        this.quote = BigInt( quote );
+        this.slope = BigInt( slope );
     }
 }
 
@@ -95,7 +95,7 @@ export class Linear2InBothSub extends BaseLinear
     constructor( quote: bigint, slope: bigint, min: bigint )
     {
         super( quote, slope );
-        defineReadOnlyProperty( this, "min", BigInt( min ) );
+        this.min = BigInt( min );
     }
     at( x: bigint, y: bigint ) { return this.quote + ( max( this.min, (x - y) ) * this.slope ) }
 }
@@ -137,7 +137,7 @@ export class LinearOnEqualXY extends BaseLinear
     constructor( quote: bigint, slope: bigint, constant: bigint )
     {
         super( quote, slope );
-        defineReadOnlyProperty( this, "const",  BigInt( constant ));
+        this.const = BigInt( constant );
     }
     at( x: bigint, y: bigint ) { return x === y ? this.quote + (x * this.slope) : this.const }
 }
@@ -149,8 +149,8 @@ export class YGtEqOrConst<CostF extends CostFunc<2>>
     readonly f!: CostF
     constructor( constant: bigint, f: CostF )
     {
-        defineReadOnlyProperty( this, "const", BigInt( constant ));
-        defineReadOnlyProperty( this, "f", f);
+        this.const = BigInt( constant );
+        this.f = f;
     }
     at( x: bigint, y: bigint ) { return x > y ? this.const : this.f.at( x, y ) }
 }
@@ -162,8 +162,8 @@ export class XGtEqOrConst<CostF extends CostFunc<2>>
     readonly f!: CostF
     constructor( constant: bigint, f: CostF )
     {
-        defineReadOnlyProperty( this, "const", BigInt( constant ));
-        defineReadOnlyProperty( this, "f", f );
+        this.const = BigInt( constant );
+        this.f = f;
     }
     at( x: bigint, y: bigint ) { return x < y ? this.const : this.f.at( x, y ) }
 }
@@ -208,6 +208,28 @@ export class Linear3InZ extends BaseLinear
     at( x: bigint, y: bigint, z: bigint ) { return this.quote + ( z * this.slope ) }
 }
 
+export class Linear3InYAndZ
+    implements CostFunc<3>
+{
+    constructor(
+        readonly quote: bigint,
+        readonly slope1: bigint,
+        readonly slope2: bigint
+    ){}
+
+    at( _x: bigint, y: bigint, z: bigint ) { return this.quote + (y * this.slope1) + ( z * this.slope2 ); }
+}
+
+export class Linear3InMaxYZ extends BaseLinear
+    implements LinearCostFunc<3>
+{
+    constructor( quote: bigint, slope: bigint )
+    {
+        super( quote, slope );
+    }
+    at( x: bigint, y: bigint, z: bigint ) { return this.quote + ( max( y, z ) * this.slope ) }
+}
+
 /**
  * function in the form of
  * `a + b * x + c * (x**2)`
@@ -222,9 +244,9 @@ class BaseQuadratic
     readonly x2: bigint;
     constructor( x0: bigint, x1: bigint, x2: bigint )
     {
-        defineReadOnlyProperty( this, "x0", BigInt(x0) );
-        defineReadOnlyProperty( this, "x1", BigInt(x1) );
-        defineReadOnlyProperty( this, "x2", BigInt(x2) );
+        this.x0 = BigInt( x0 );
+        this.x1 = BigInt( x1 );
+        this.x2 = BigInt( x2 );
     }
 }
 
@@ -355,7 +377,9 @@ export type ThreeArgs
     | Linear3InY
     | Linear3InZ
     | Quadratic3InZ
-    | ConstYOrLinearZ;
+    | ConstYOrLinearZ
+    | Linear3InYAndZ
+    | Linear3InMaxYZ;
 
 export type SixArgs
     = FixedCost;

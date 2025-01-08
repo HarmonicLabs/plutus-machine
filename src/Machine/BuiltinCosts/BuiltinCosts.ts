@@ -1,5 +1,5 @@
 import { UPLCBuiltinTag } from "@harmoniclabs/uplc";
-import { ConstMinOrQuadratic2InXY, ConstYOrLinearZ, CostFunction, FixedCost, Linear1, Linear2InBothAdd, Linear2InBothMult, Linear2InBothSub, Linear2InMax, Linear2InMin, Linear2InX, Linear2InY, Linear3InY, Linear3InZ, LinearOnEqualXY, OneArg, Quadratic2InY, Quadratic3InZ, SixArgs, ThreeArgs, TwoArgs, XGtEqOrConst, YGtEqOrConst } from "./costFunctions";
+import { ConstMinOrQuadratic2InXY, ConstYOrLinearZ, CostFunction, FixedCost, Linear1, Linear2InBothAdd, Linear2InBothMult, Linear2InBothSub, Linear2InMax, Linear2InMin, Linear2InX, Linear2InY, Linear3InMaxYZ, Linear3InX, Linear3InY, Linear3InYAndZ, Linear3InZ, LinearOnEqualXY, OneArg, Quadratic2InY, Quadratic3InZ, SixArgs, ThreeArgs, TwoArgs, XGtEqOrConst, YGtEqOrConst } from "./costFunctions";
 import { AnyV1CostModel, costModelV1ToFakeV2, AnyV2CostModel, toCostModelV2, isCostModelsV2, costModelV2ToFakeV3, costModelV1ToFakeV3, AnyV3CostModel, toCostModelV3, isCostModelsV3 } from "@harmoniclabs/cardano-costmodels-ts";
 import { defineReadOnlyProperty, hasOwn } from "@harmoniclabs/obj-utils";
 import { assert } from "../../utils/assert";
@@ -87,6 +87,19 @@ export type BuiltinCostsOf<Tag extends UPLCBuiltinTag> =
     Tag extends UPLCBuiltinTag.keccak_256 ?                 ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.blake2b_224 ?                ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.integerToByteString ?        ExecCostFuncs<ThreeArgs> :
+
+    Tag extends UPLCBuiltinTag.andByteString ?              ExecCostFuncs<ThreeArgs> :
+    Tag extends UPLCBuiltinTag.orByteString ?               ExecCostFuncs<ThreeArgs> :
+    Tag extends UPLCBuiltinTag.xorByteString ?              ExecCostFuncs<ThreeArgs> :
+    Tag extends UPLCBuiltinTag.complementByteString ?       ExecCostFuncs<OneArg> :
+    // Tag extends UPLCBuiltinTag.readBit ?                    ExecCostFuncs<TwoArgs> :
+    Tag extends UPLCBuiltinTag.writeBits ?                  ExecCostFuncs<ThreeArgs> :
+    // Tag extends UPLCBuiltinTag.replicateByte ?              ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.shiftByteString ?            ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.rotateByteString ?           ExecCostFuncs<TwoArgs> :
+    Tag extends UPLCBuiltinTag.countSetBits ?               ExecCostFuncs<OneArg> :
+    Tag extends UPLCBuiltinTag.findFirstSetBit ?            ExecCostFuncs<OneArg> :
+    Tag extends UPLCBuiltinTag.ripemd_160 ?                 ExecCostFuncs<OneArg> :
     // Tag extends UPLCBuiltinTag.byteStringToInteger ?        ExecCostFuncs<TwoArg> :
     ExecCostFuncs<TwoArgs>
     // never;
@@ -107,7 +120,7 @@ export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel ): <Tag exte
 
 export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
 {
-    const costs = toCostModelV3( costmdls );
+    const costs = { ...toCostModelV3( costmdls ) };
     assert(
         isCostModelsV3( costs ),
         "invalid cost models passed"
@@ -115,11 +128,11 @@ export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel ): <Tag exte
     
     const cache: ToBuiltinCache = {} as any;
 
-    return <Tag extends UPLCBuiltinTag>( tag: Tag ) => {
+    return (( tag: UPLCBuiltinTag ) => {
 
         if( hasOwn( cache, tag ) ) return cache[tag];
 
-        function readonly( costs: ExecCostFuncs<CostFunction> ): BuiltinCostsOf<Tag> 
+        function readonly<Tag extends typeof tag>( costs: ExecCostFuncs<CostFunction> ): BuiltinCostsOf<Tag> 
         {
             const result: BuiltinCostsOf<Tag>  = {} as any;
 
@@ -767,8 +780,145 @@ export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel ): <Tag exte
                     )
                 });
             break;
+            case UPLCBuiltinTag.andByteString: {
+                return readonly({
+                    cpu: new Linear3InYAndZ(
+                        BigInt( costs["andByteString-cpu-arguments-intercept"] ),
+                        BigInt( costs["andByteString-cpu-arguments-slope1"] ),
+                        BigInt( costs["andByteString-cpu-arguments-slope2"] )
+                    ),
+                    mem: new Linear3InMaxYZ(
+                        BigInt( costs["andByteString-memory-arguments-intercept"] ),
+                        BigInt( costs["andByteString-memory-arguments-slope"] ),
+                    ),
+                });
+            } break; 
+            case UPLCBuiltinTag.orByteString: {
+                return readonly({
+                    cpu: new Linear3InYAndZ(
+                        BigInt( costs["orByteString-cpu-arguments-intercept"] ),
+                        BigInt( costs["orByteString-cpu-arguments-slope1"] ),
+                        BigInt( costs["orByteString-cpu-arguments-slope2"] )
+                    ),
+                    mem: new Linear3InMaxYZ(
+                        BigInt( costs["orByteString-memory-arguments-intercept"] ),
+                        BigInt( costs["orByteString-memory-arguments-slope"] ),
+                    ),
+                });
+            } break;
+            case UPLCBuiltinTag.xorByteString: {
+                return readonly({
+                    cpu: new Linear3InYAndZ(
+                        BigInt( costs["xorByteString-cpu-arguments-intercept"] ),
+                        BigInt( costs["xorByteString-cpu-arguments-slope1"] ),
+                        BigInt( costs["xorByteString-cpu-arguments-slope2"] )
+                    ),
+                    mem: new Linear3InMaxYZ(
+                        BigInt( costs["xorByteString-memory-arguments-intercept"] ),
+                        BigInt( costs["xorByteString-memory-arguments-slope"] ),
+                    ),
+                });
+            } break;
+            case UPLCBuiltinTag.complementByteString: {
+                return readonly({
+                    cpu: new Linear1(
+                        BigInt( costs["complementByteString-cpu-arguments-intercept"] ),
+                        BigInt( costs["complementByteString-cpu-arguments-slope"] )
+                    ),
+                    mem: new Linear1(
+                        BigInt( costs["complementByteString-memory-arguments-intercept"] ),
+                        BigInt( costs["complementByteString-memory-arguments-slope"] )
+                    ),
+                });
+            } break;
+            case UPLCBuiltinTag.readBit: {
+                return readonly({
+                    cpu: new FixedCost( BigInt( costs["readBit-cpu-arguments"] ) ),
+                    mem: new FixedCost( BigInt( costs["readBit-memory-arguments"] ) ),
+                });
+            } break;
+            case UPLCBuiltinTag.writeBits: {
+                return readonly({
+                    cpu: new Linear3InY(
+                        BigInt( costs["writeBits-cpu-arguments-intercept"] ),
+                        BigInt( costs["writeBits-cpu-arguments-slope"] )
+                    ),
+                    mem: new Linear3InX(
+                        BigInt( costs["writeBits-memory-arguments-intercept"] ),
+                        BigInt( costs["writeBits-memory-arguments-slope"] )
+                    ),
+                });
+            } break;
+            case UPLCBuiltinTag.replicateByte: {
+                return readonly({
+                    cpu: new Linear2InX(
+                        BigInt( costs["replicateByte-cpu-arguments-intercept"] ),
+                        BigInt( costs["replicateByte-cpu-arguments-slope"] )
+                    ),
+                    mem: new Linear2InX(
+                        BigInt( costs["replicateByte-memory-arguments-intercept"] ),
+                        BigInt( costs["replicateByte-memory-arguments-slope"] )
+                    ),
+                });
+            } break;
+            case UPLCBuiltinTag.shiftByteString: {
+                return readonly({
+                    cpu: new Linear2InX(
+                        BigInt( costs["shiftByteString-cpu-arguments-intercept"] ),
+                        BigInt( costs["shiftByteString-cpu-arguments-slope"] )
+                    ),
+                    mem: new Linear2InX(
+                        BigInt( costs["shiftByteString-memory-arguments-intercept"] ),
+                        BigInt( costs["shiftByteString-memory-arguments-slope"] )
+                    ),
+                });
+            } break;
+            case UPLCBuiltinTag.rotateByteString: {
+                return readonly({
+                    cpu: new Linear2InX(
+                        BigInt( costs["rotateByteString-cpu-arguments-intercept"] ),
+                        BigInt( costs["rotateByteString-cpu-arguments-slope"] )
+                    ),
+                    mem: new Linear2InX(
+                        BigInt( costs["rotateByteString-memory-arguments-intercept"] ),
+                        BigInt( costs["rotateByteString-memory-arguments-slope"] )
+                    ),
+                });
+            } break;
+            case UPLCBuiltinTag.countSetBits: {
+                return readonly({
+                    cpu: new Linear1(
+                        BigInt( costs["countSetBits-cpu-arguments-intercept"] ),
+                        BigInt( costs["countSetBits-cpu-arguments-slope"] )
+                    ),
+                    mem: new FixedCost( BigInt( costs["countSetBits-memory-arguments"] ) ),
+                });
+            } break;
+            case UPLCBuiltinTag.findFirstSetBit: {
+                return readonly({
+                    cpu: new Linear1(
+                        BigInt( costs["findFirstSetBit-cpu-arguments-intercept"] ),
+                        BigInt( costs["findFirstSetBit-cpu-arguments-slope"] )
+                    ),
+                    mem: new FixedCost( BigInt( costs["findFirstSetBit-memory-arguments"] ) ),
+                });
+            } break;
+            case UPLCBuiltinTag.ripemd_160: {
+                return readonly({
+                    cpu: new Linear1(
+                        BigInt( costs["ripemd_160-cpu-arguments-intercept"] ),
+                        BigInt( costs["ripemd_160-cpu-arguments-slope"] )
+                    ),
+                    mem: new FixedCost( BigInt( costs["ripemd_160-memory-arguments"] ) ),
+                });
+            } break;
+
+            default:
+                // tag; // check it is type "never"
+                throw new Error("unmatched builtin cost")
         }
     
         throw new Error("unmatched builtin cost")
-    }
+
+    }) as <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>;
 }
