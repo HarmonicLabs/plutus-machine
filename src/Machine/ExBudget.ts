@@ -1,5 +1,5 @@
 import type { CanBeUInteger } from "@harmoniclabs/biguint";
-import { ToCbor, CborString, Cbor, CborArray, CborUInt, CanBeCborString, forceCborString, CborObj } from "@harmoniclabs/cbor";
+import { ToCbor, CborString, Cbor, CborArray, CborUInt, CanBeCborString, forceCborString, CborObj, ToCborString, ToCborObj } from "@harmoniclabs/cbor";
 import { definePropertyIfNotPresent, defineReadOnlyProperty, isObject } from "@harmoniclabs/obj-utils";
 
 export interface IExBudget {
@@ -13,7 +13,7 @@ export interface ExBudgetJson {
 }
 
 export class ExBudget
-    implements IExBudget, ToCbor
+    implements IExBudget, ToCborString, ToCborObj
 {
     private _cpu!: bigint;
     get cpu(): bigint { return this._cpu; }
@@ -86,6 +86,10 @@ export class ExBudget
         return new ExBudget( this.cpu, this.mem );
     }
 
+    toCborBytes(): Uint8Array
+    {
+        return this.toCbor().toBuffer();
+    }
     toCbor(): CborString
     {
         return Cbor.encode( this.toCborObj() );

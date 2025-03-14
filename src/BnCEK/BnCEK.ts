@@ -1,17 +1,16 @@
-import { log2, abs } from "@harmoniclabs/bigint-utils";
+import { log2 } from "@harmoniclabs/bigint-utils";
 import { ByteString } from "@harmoniclabs/bytestring";
 import { Pair } from "@harmoniclabs/pair";
-import { fromHex, fromUtf8, toHex, toUtf8 } from "@harmoniclabs/uint8array-utils";
+import { fromUtf8, toHex, toUtf8 } from "@harmoniclabs/uint8array-utils";
 import { isData, Data, DataConstr, DataMap, DataList, DataI, DataB, DataPair, dataToCbor, eqData } from "@harmoniclabs/plutus-data";
 import { ConstValue, isConstValueInt, UPLCTerm, ConstType, constTypeEq, constT, ConstTyTag, UPLCBuiltinTag, constPairTypeUtils, constListTypeUtils, constTypeToStirng } from "@harmoniclabs/uplc";
 import { BuiltinCostsOf } from "../Machine/BuiltinCosts/BuiltinCosts";
 import { ExBudget } from "../Machine/ExBudget";
 import { PartialBuiltin } from "./PartialBuiltin";
-import { BlsG1, BlsG2, BlsResult, blake2b, blake2b_224, bls12_381_G1_add, bls12_381_G1_compress, bls12_381_G1_equal, bls12_381_G1_hashToGroup, bls12_381_G1_neg, bls12_381_G1_scalarMul, bls12_381_G1_uncompress, bls12_381_G2_add, bls12_381_G2_compress, bls12_381_G2_equal, bls12_381_G2_hashToGroup, bls12_381_G2_neg, bls12_381_G2_scalarMul, bls12_381_G2_uncompress, bls12_381_finalVerify, bls12_381_millerLoop, bls12_381_mulMlResult, byte, isBlsG1, isBlsG2, isBlsResult, keccak_256, sha2_256, sha3, verifyEcdsaSecp256k1Signature, verifyEd25519Signature, verifySchnorrSecp256k1Signature, ripemd160 } from "@harmoniclabs/crypto";
+import { BlsG1, BlsG2, BlsResult, blake2b, blake2b_224, bls12_381_G1_add, bls12_381_G1_compress, bls12_381_G1_equal, bls12_381_G1_hashToGroup, bls12_381_G1_neg, bls12_381_G1_scalarMul, bls12_381_G1_uncompress, bls12_381_G2_add, bls12_381_G2_compress, bls12_381_G2_equal, bls12_381_G2_hashToGroup, bls12_381_G2_neg, bls12_381_G2_scalarMul, bls12_381_G2_uncompress, bls12_381_finalVerify, bls12_381_millerLoop, bls12_381_mulMlResult, isBlsG1, isBlsG2, isBlsResult, keccak_256, sha3, verifyEcdsaSecp256k1Signature, verifySchnorrSecp256k1Signature, ripemd160, sha2_256_sync, verifyEd25519Signature_sync } from "@harmoniclabs/crypto";
 import { CEKError } from "../CEKValue/CEKError";
 import { CEKConst } from "../CEKValue/CEKConst";
 import { CEKValue } from "../CEKValue/CEKValue";
-import { read } from "fs";
 import { shiftU8Arr } from "./impl/shiftU8Arr";
 import { rotateU8Arr } from "./impl/rotateU8Arr";
 import { countSetBits } from "./impl/countSetBits";
@@ -951,7 +950,7 @@ export class BnCEK
         return CEKConst.byteString(
             new ByteString(
                 new Uint8Array(
-                    sha2_256( b.toBuffer() )
+                    sha2_256_sync( b.toBuffer() )
                 )
             )
         );
@@ -1057,7 +1056,7 @@ export class BnCEK
             cpu: f.cpu.at( sk, sm, ss )
         });
 
-        return constOrErr(() => CEKConst.bool( verifyEd25519Signature( sBytes, m.toBuffer(), kBytes ) ));
+        return constOrErr(() => CEKConst.bool( verifyEd25519Signature_sync( sBytes, m.toBuffer(), kBytes ) ));
     }
 
     appendString( a: CEKValue, b: CEKValue ): ConstOrErr
