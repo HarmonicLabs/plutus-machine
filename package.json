@@ -34,16 +34,16 @@
   "homepage": "https://github.com/HarmonicLabs/plutus-machine#readme",
   "dependencies": {
     "@harmoniclabs/obj-utils": "^1.0.0",
-    "@harmoniclabs/uint8array-utils": "^1.0.3",
-    "@harmoniclabs/crypto": "^0.3.0-dev0",
+    "@harmoniclabs/uint8array-utils": "^1.0.4",
+    "@harmoniclabs/crypto": "^0.3.0",
     "@harmoniclabs/bigint-utils": "^1.0.0",
     "@harmoniclabs/cardano-costmodels-ts": "^1.3.0"
   },
   "peerDependencies": {
     "@harmoniclabs/bytestring": "^1.0.0",
-    "@harmoniclabs/cbor": "^1.5.0",
+    "@harmoniclabs/cbor": "^1.6.6",
     "@harmoniclabs/pair": "^1.0.0",
-    "@harmoniclabs/plutus-data": "^1.2.4",
+    "@harmoniclabs/plutus-data": "^1.2.6",
     "@harmoniclabs/uplc": "^1.4.1"
   },
   "devDependencies": {
