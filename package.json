@@ -41,7 +41,7 @@
   },
   "peerDependencies": {
     "@harmoniclabs/bytestring": "^1.0.0",
-    "@harmoniclabs/cbor": "^1.5.0",
+    "@harmoniclabs/cbor": "^1.6.6",
     "@harmoniclabs/pair": "^1.0.0",
     "@harmoniclabs/plutus-data": "^1.2.6",
     "@harmoniclabs/uplc": "^1.4.1"
