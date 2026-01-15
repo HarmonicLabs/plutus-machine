@@ -14,8 +14,11 @@ export class CEKConst
         this.value = value;
     }
 
-    static fromUplc( uplc: UPLCConst ): CEKConst
+    static fromUplc(
+        uplc: UPLCConst | CEKConst
+    ): CEKConst
     {
+        if( uplc instanceof CEKConst ) return uplc;
         return new CEKConst(
             uplc.type,
             uplc.value

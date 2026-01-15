@@ -140,10 +140,7 @@ export class Machine
     
         const uplc = isUPLCTerm( _term ) ? _term : _term.toUPLC(0);
 
-        if( has_src )
-        {
-            indexNodes( uplc );
-        }
+        if( has_src ) indexNodes( uplc );
 
         spend( machineCosts.startup );
         compute( uplc, new CEKEnv( heap ) );
@@ -177,13 +174,18 @@ export class Machine
     
         function compute( term: UPLCTerm, env: CEKEnv ): void
         {
-            // n_compute++;
-    
-            if( term instanceof ErrorUPLC )
+            if(
+                term instanceof ErrorUPLC
+                || term instanceof CEKError
+            )
             {
-                defineCallStack( term );
-                // console.log( term );
-                steps.push( new ReturnStep( CEKError.fromUplc( term, (frames as any)._frames ) ) );
+                if( term instanceof ErrorUPLC ) defineCallStack( term );
+                steps.push(
+                    new ReturnStep(
+                        term instanceof CEKError ? term :
+                        CEKError.fromUplc( term, (frames as any)._frames )
+                    )
+                );
                 return;
             }
     
@@ -205,18 +207,24 @@ export class Machine
                 return;
             }
     
-            if( term instanceof UPLCConst )
+            if(
+                term instanceof UPLCConst
+                || term instanceof CEKConst
+            )
             {
                 budget.add( machineCosts.constant );
                 steps.push( new ReturnStep( CEKConst.fromUplc( term ) ) );
                 return;
             }
     
-            if( term instanceof Lambda )
-            {
+            if(
+                term instanceof Lambda
+                || term instanceof CEKLambda
+            ) {
                 budget.add( machineCosts.lam );
                 steps.push(
                     new ReturnStep(
+                        term instanceof CEKLambda ? term :
                         new CEKLambda( term.body, env.clone() )
                     )
                 );
@@ -224,11 +232,15 @@ export class Machine
                 return;
             }
     
-            if( term instanceof Delay )
+            if(
+                term instanceof Delay
+                || term instanceof CEKDelay
+            )
             {
                 budget.add( machineCosts.delay );
                 steps.push(
                     new ReturnStep(
+                        term instanceof CEKDelay ? term :
                         new CEKDelay(
                             term.delayedTerm,
                             env.clone()
@@ -331,6 +343,7 @@ export class Machine
                 return;
             }
 
+            console.error( term );
             const err = new CEKError("ComputeStep/no match", { term } );
             defineCallStack( err );
             steps.push( new ReturnStep( err ) )
@@ -587,7 +600,7 @@ export class Machine
                         new ReturnStep(
                             new CEKError(
                                 "case frame received constr with tag " + i +
-                                "; but only ad aviable " + n + " term continuations"
+                                "; but only " + n + " term continuations"
                             )
                         )
                     );
@@ -603,6 +616,7 @@ export class Machine
                 return;
             }
     
+            console.error( topFrame );
             const err = new CEKError("ReturnStep/LApp", { topFrame: topFrame } );
             defineCallStack( err );
             steps.push( new ReturnStep( err ) )
