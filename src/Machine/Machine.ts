@@ -343,7 +343,7 @@ export class Machine
                 return;
             }
 
-            console.error( term );
+            // console.error( term );
             const err = new CEKError("ComputeStep/no match", { term } );
             defineCallStack( err );
             steps.push( new ReturnStep( err ) )
