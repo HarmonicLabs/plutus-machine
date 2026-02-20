@@ -183,7 +183,7 @@ export class Machine
                 steps.push(
                     new ReturnStep(
                         term instanceof CEKError ? term :
-                        CEKError.fromUplc( term, (frames as any)._frames )
+                        CEKError.fromUplc( term )
                     )
                 );
                 return;

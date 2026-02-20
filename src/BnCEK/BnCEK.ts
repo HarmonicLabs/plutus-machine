@@ -809,7 +809,7 @@ export class BnCEK
         if( i >= BigInt("9223372036854775808") )
         return new CEKError("indexByteString :: (maxBound :: Int64) overflow")
 
-        const result = _bs.toBuffer().at( Number( i ) );
+        const result = _bs.toBuffer()[ Number( i ) ];
         if( result === undefined ) return new CEKError(
             "indexByteString :: out of bytestring length",
             { bs_length: _bs.toBuffer().length, index: i }
@@ -893,8 +893,8 @@ export class BnCEK
         // aBytes.length is either greather or equal bBytes.length
         for(let i = 0; i < aBytes.length; i++)
         {
-            const aByte = aBytes.at(i) ?? Infinity;
-            const bByte = bBytes.at(i);
+            const aByte = aBytes[i] ?? Infinity;
+            const bByte = bBytes[i];
             if( bByte === undefined ) return CEKConst.bool( false );
 
             if( aByte < bByte ) return CEKConst.bool( true );
