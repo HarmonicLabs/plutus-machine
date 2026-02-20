@@ -7,7 +7,7 @@ import { ForceFrame } from "../CEKFrames/ForceFrame";
 import { LApp } from "../CEKFrames/LApp";
 import { RApp } from "../CEKFrames/RApp";
 import { CEKHeap } from "../CEKHeap";
-import { CEKSteps, ComputeStep, ReturnStep } from "../CEKSteps";
+import { CEKStep, CEKSteps, ComputeStep, ReturnStep } from "../CEKSteps";
 import { CEKDelay } from "../CEKValue/CEKDelay";
 import { CEKLambda } from "../CEKValue/CEKLambda";
 import { BuiltinCostsOf, costModelV3ToBuiltinCosts } from "./BuiltinCosts/BuiltinCosts";
@@ -99,7 +99,6 @@ export class Machine
         const bnCEK = new BnCEK( getBuiltinCostFuction, budget, logs );
         
         const frames = new CEKFrames();
-        const steps = new CEKSteps();
         const heap = new CEKHeap();
 
         let _poppedFrame: Frame = undefined as any;
@@ -142,32 +141,29 @@ export class Machine
 
         if( has_src ) indexNodes( uplc );
 
+        let nextStep: CEKStep | undefined;
+
         spend( machineCosts.startup );
         compute( uplc, new CEKEnv( heap ) );
     
-        while( !frames.isEmpty || steps.topIsCompute )
+        while( !frames.isEmpty || (nextStep as any) instanceof ComputeStep )
         {
-            const nextStep = steps.top();
-    
             if( nextStep === undefined )
             {
                 throw new Error("step stack was empty; don't know how to proceed");
             }
             if( nextStep instanceof ComputeStep )
             {
-                void steps.pop();
                 compute( nextStep.term, nextStep.env );
+                continue;
             }
             else if( nextStep instanceof ReturnStep )
             {
                 if( nextStep.value instanceof CEKError )
-                {
-                    steps._clear();
-                    steps.push( nextStep ); // save error
                     break; // exit loop
-                }
-                void steps.pop();
+
                 returnCEK( nextStep.value );
+                continue;
             }
             else throw new Error( "unknown step" );
         }
@@ -180,10 +176,10 @@ export class Machine
             )
             {
                 if( term instanceof ErrorUPLC ) defineCallStack( term );
-                steps.push(
+                nextStep = (
                     new ReturnStep(
                         term instanceof CEKError ? term :
-                        CEKError.fromUplc( term, (frames as any)._frames )
+                        CEKError.fromUplc( term )
                     )
                 );
                 return;
@@ -194,7 +190,7 @@ export class Machine
                 const varValue = env.get( term.deBruijn );
                 if( varValue === undefined )
                 {
-                    steps.push(
+                    nextStep = (
                         new ReturnStep(
                             new CEKError("unbound uplc variable")
                         )
@@ -203,7 +199,7 @@ export class Machine
                 }
                 
                 budget.add( machineCosts.var );
-                steps.push( new ReturnStep( varValue ) );
+                nextStep = ( new ReturnStep( varValue ) );
                 return;
             }
     
@@ -213,7 +209,7 @@ export class Machine
             )
             {
                 budget.add( machineCosts.constant );
-                steps.push( new ReturnStep( CEKConst.fromUplc( term ) ) );
+                nextStep = ( new ReturnStep( CEKConst.fromUplc( term ) ) );
                 return;
             }
     
@@ -222,7 +218,7 @@ export class Machine
                 || term instanceof CEKLambda
             ) {
                 budget.add( machineCosts.lam );
-                steps.push(
+                nextStep = (
                     new ReturnStep(
                         term instanceof CEKLambda ? term :
                         new CEKLambda( term.body, env.clone() )
@@ -238,7 +234,7 @@ export class Machine
             )
             {
                 budget.add( machineCosts.delay );
-                steps.push(
+                nextStep = (
                     new ReturnStep(
                         term instanceof CEKDelay ? term :
                         new CEKDelay(
@@ -254,7 +250,7 @@ export class Machine
             {
                 budget.add( machineCosts.force );
                 frames.push( new ForceFrame() );
-                steps.push( new ComputeStep( term.termToForce, env ) );
+                nextStep = ( new ComputeStep( term.termToForce, env ) );
                 return;
             }
     
@@ -266,7 +262,7 @@ export class Machine
                 // [_ (𝑁, 𝜌)]⋅𝑠;
                 frames.push( rapp );
                 // 𝜌 ⊳ 𝑀
-                steps.push( new ComputeStep( term.funcTerm, env ) );
+                nextStep = ( new ComputeStep( term.funcTerm, env ) );
 
                 if( has_src && typeof( (term as any).__node_index__ ) === "number" )
                     rapp.src = srcmap[(term as any).__node_index__];
@@ -289,12 +285,12 @@ export class Machine
                         env
                     ));
                     // 𝜌 ⊳ 𝑀
-                    steps.push(new ComputeStep(term.terms[0], env))
+                    nextStep = (new ComputeStep(term.terms[0], env))
                 }
                 // 𝑠; 𝜌 ⊳ (constr 𝑖 [])↦ 𝑠 ⊲ 〈constr 𝑖 []〉
                 else
                 {
-                    steps.push(
+                    nextStep = (
                         new ReturnStep(
                             new CEKConstr(
                                 term.index,
@@ -318,7 +314,7 @@ export class Machine
                     )
                 );
                 // 𝜌 ⊳ 𝑁
-                steps.push(
+                nextStep = (
                     new ComputeStep(
                         term.constrTerm,
                         env
@@ -335,7 +331,7 @@ export class Machine
             {
                 if( term instanceof Builtin ) spendBuiltin( term );
                 // 𝑠 ⊲ 〈builtin 𝑏 [] 𝛼(𝑏)〉
-                steps.push(
+                nextStep = (
                     new ReturnStep(
                         term instanceof PartialBuiltin? term : new PartialBuiltin( term.tag )
                     )
@@ -346,7 +342,7 @@ export class Machine
             // console.error( term );
             const err = new CEKError("ComputeStep/no match", { term } );
             defineCallStack( err );
-            steps.push( new ReturnStep( err ) )
+            nextStep = ( new ReturnStep( err ) )
             return;
         }
     
@@ -355,9 +351,8 @@ export class Machine
             if( v instanceof ErrorUPLC )
             {
                 defineCallStack( v );
-                steps._clear();
                 // terminates while loop
-                steps.push( new ReturnStep( v ) );
+                nextStep = ( new ReturnStep( v ) );
                 return;
             }
     
@@ -371,14 +366,14 @@ export class Machine
                     {
                         defineCallStack( evalResult );
                     }
-                    steps.push( new ReturnStep( evalResult ) );
+                    nextStep = ( new ReturnStep( evalResult ) );
                     return;
                 }
                 if( frames.isEmpty )
                 {
                     const err = new ErrorUPLC("ReturnStep/PartialBuiltin/empty frames");
                     defineCallStack( err );
-                    steps.push( new ReturnStep( err ) );
+                    nextStep = ( new ReturnStep( err ) );
                     return;
                 }
             }
@@ -396,12 +391,12 @@ export class Machine
                 if( bn.nMissingArgs === 0 ) {
                     const evalResult = bnCEK.eval( bn );
                     if( evalResult instanceof CEKError ) defineCallStack( evalResult );
-                    steps.push( new ReturnStep( evalResult ) );
+                    nextStep = ( new ReturnStep( evalResult ) );
                     return;
                 }
 
                 // choose what to do based on the frames
-                steps.push( new ReturnStep( bn ) );
+                nextStep = ( new ReturnStep( bn ) );
                 return;
             }
 
@@ -409,7 +404,7 @@ export class Machine
             if( frames.isEmpty )
             {
                 // ends while loop
-                steps.push( new ReturnStep( v ) );
+                nextStep = ( new ReturnStep( v ) );
                 return;    
             }
     
@@ -430,7 +425,7 @@ export class Machine
                         // 𝜌[𝑥 ↦ 𝑉 ]
                         env.push( topFrame.arg );
                         // ⊳ 𝑀
-                        steps.push(
+                        nextStep = (
                             new ComputeStep(
                                 v.body,
                                 env
@@ -455,7 +450,7 @@ export class Machine
                     // [𝑉 _]⋅𝑠;
                     frames.push( new LApp( v, topFrame.src ) );
                     // 𝜌 ⊳ 𝑀
-                    steps.push( new ComputeStep( topFrame.arg, topFrame.env ) );
+                    nextStep = ( new ComputeStep( topFrame.arg, topFrame.env ) );
                     return;
                 }
                 return;
@@ -485,7 +480,7 @@ export class Machine
     
                     _env.push( v );
     
-                    steps.push(
+                    nextStep = (
                         new ComputeStep(
                             (topFrame.func as CEKLambda | Lambda).body,
                             _env
@@ -505,7 +500,7 @@ export class Machine
                     v instanceof CEKDelay
                 )
                 {
-                    steps.push(
+                    nextStep = (
                         new ComputeStep(
                             (v as Delay | CEKDelay).delayedTerm,
                             v instanceof CEKDelay ? (v as CEKDelay).env : new CEKEnv( heap )
@@ -515,7 +510,7 @@ export class Machine
                 }
     
                 // not sure about the env...
-                steps.push(
+                nextStep = (
                     new ComputeStep(
                         v,
                         new CEKEnv( heap )
@@ -530,7 +525,7 @@ export class Machine
                 if( topFrame.terms.length === 0 )
                 {
                     // 𝑠 ⊲ 〈constr 𝑖 𝑉 ⋅𝑉[] 〉
-                    steps.push(
+                    nextStep = (
                         new ReturnStep(
                             new CEKConstr(
                                 topFrame.tag,
@@ -558,7 +553,7 @@ export class Machine
                         )
                     );
                     // 𝜌 ⊳ 𝑀
-                    steps.push(
+                    nextStep = (
                         new ComputeStep(
                             topFrame.terms[0],
                             topFrame.env
@@ -574,7 +569,7 @@ export class Machine
             {
                 if(!( v instanceof CEKConstr ))
                 {
-                    steps.push(
+                    nextStep = (
                         new ReturnStep(
                             new CEKError(
                                 "case frame did not receive constr value",
@@ -595,8 +590,7 @@ export class Machine
                 // if 0 ≤ 𝑖 ≤ 𝑛
                 if(!( 0 <= i && i <= n ))
                 {
-                    steps._clear();
-                    steps.push(
+                    nextStep = (
                         new ReturnStep(
                             new CEKError(
                                 "case frame received constr with tag " + i +
@@ -607,7 +601,7 @@ export class Machine
                     return;
                 }
                 // 𝜌 ⊳ 𝑀𝑖
-                steps.push(
+                nextStep = (
                     new ComputeStep(
                         topFrame.terms[i],
                         topFrame.env
@@ -619,14 +613,14 @@ export class Machine
             console.error( topFrame );
             const err = new CEKError("ReturnStep/LApp", { topFrame: topFrame } );
             defineCallStack( err );
-            steps.push( new ReturnStep( err ) )
+            nextStep = ( new ReturnStep( err ) )
             return;
         }
     
         // Debug.timeEnd(timeTag);
 
         return {
-            result: (steps.pop() as ReturnStep)?.value ?? new CEKError("steps.pop() was not a ReturnStep"),
+            result: (nextStep as ReturnStep)?.value ?? new CEKError("steps.pop() was not a ReturnStep"),
             budgetSpent: budget,
             logs: logs
         };
