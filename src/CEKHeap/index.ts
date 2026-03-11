@@ -17,6 +17,7 @@ export class CEKHeap
 
     add( varValue: CEKValue ): number
     {
+        /*
         const alreadyPresent = this._heap.findIndex(
             ( heapValue ) => eqCEKValue( heapValue, varValue )
         );
@@ -26,6 +27,15 @@ export class CEKHeap
             return this._heap.length - 1;
         }
         return alreadyPresent;
+        /*/
+        const alreadyPresent = this._heap.indexOf( varValue );
+        if( alreadyPresent < 0 )
+        {
+            this._heap.push( varValue );
+            return this._heap.length - 1;
+        }
+        return alreadyPresent;
+        //*
     }
 
     get( idx: number ): CEKValue | undefined
