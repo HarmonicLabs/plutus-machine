@@ -26,7 +26,7 @@ export class ConstrFrame
             this.tag,
             this.terms.map( t => t.clone() ),
             this.values.map( v => v.clone() ),
-            this.env.clone(),
+            this.env,
             this.src
         );
     }

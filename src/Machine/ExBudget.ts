@@ -1,10 +1,11 @@
-import type { CanBeUInteger } from "@harmoniclabs/biguint";
 import { ToCbor, CborString, Cbor, CborArray, CborUInt, CanBeCborString, forceCborString, CborObj, ToCborString, ToCborObj } from "@harmoniclabs/cbor";
 import { definePropertyIfNotPresent, defineReadOnlyProperty, isObject } from "@harmoniclabs/obj-utils";
 
+export const I64_MAX = BigInt("9223372036854775807");
+
 export interface IExBudget {
-    mem: CanBeUInteger,
-    cpu: CanBeUInteger
+    mem: bigint | number,
+    cpu: bigint | number
 }
 
 export interface ExBudgetJson {
@@ -15,82 +16,86 @@ export interface ExBudgetJson {
 export class ExBudget
     implements IExBudget, ToCborString, ToCborObj
 {
-    private _cpu!: bigint;
-    get cpu(): bigint { return this._cpu; }
+    public cpu: bigint;
+    public mem!: bigint;
 
-    private _mem!: bigint;
-    get mem(): bigint { return this._mem; }
-
-    constructor( args: IExBudget)
-    constructor( cpu: CanBeUInteger, mem: CanBeUInteger )
-    constructor( args_or_cpu: IExBudget | CanBeUInteger, mem?: CanBeUInteger | undefined )
+    constructor( args: IExBudget )
     {
-        if( typeof args_or_cpu === "object" )
-        {
-            this._cpu = BigInt( args_or_cpu.cpu );
-            this._mem = BigInt( args_or_cpu.mem );
-        }
-        else
-        {
-            this._cpu = BigInt( args_or_cpu );
-            if( mem === undefined )
-            {
-                throw new Error(
-                    'missing "mem" paramter while cosntructing "ExBudget" instance'
-                );
-            }
-            this._mem = BigInt( mem );
-        }
+        if(!( typeof args === "object" && args !== null )) throw new Error(
+            'invalid argument while constructing "ExBudget" instance'
+        );
+        this.cpu = BigInt( args.cpu );
+        this.mem = BigInt( args.mem );
     }
 
     add(other: Readonly<IExBudget>): void {
-        this._cpu = this._cpu + BigInt( other.cpu );
-        this._mem = this._mem + BigInt( other.mem );
+        this.cpu = this.cpu + BigInt( other.cpu );
+        this.mem = this.mem + BigInt( other.mem );
     }
     sub(other: Readonly<IExBudget>): void {
-        this._cpu = this._cpu - BigInt( other.cpu );
-        this._mem = this._mem - BigInt( other.mem );
+        this.cpu = this.cpu - BigInt( other.cpu );
+        this.mem = this.mem - BigInt( other.mem );
     }
 
     static add( a: ExBudget, b: ExBudget ): ExBudget
     {
-        return new ExBudget( a.cpu + b.cpu, a.mem + b.mem );
+        return new ExBudget({
+            cpu: a.cpu + b.cpu,
+            mem: a.mem + b.mem 
+        });
     }
 
     static sub( a: ExBudget, b: ExBudget ): ExBudget
     {
-        const cpu = a.cpu - b.cpu;
-        const mem = a.mem - b.mem;
-        return new ExBudget( cpu, mem );
+        return new ExBudget({
+            cpu: a.cpu - b.cpu,
+            mem: a.mem - b.mem 
+        });
     }
 
     static get default(): ExBudget
     {
-        return new ExBudget(
-            10_000_000_000, // cpu
-            14_000_000 // mem
-        );
+        return new ExBudget({
+            cpu: 10_000_000_000, // cpu
+            mem: 16_500_000 // mem
+        });
     }
 
     static get maxCborSize(): ExBudget
     {
         const max_uint64 = ( BigInt(1) << BigInt(64) ) - BigInt(1);
-        return new ExBudget(
-            max_uint64, // cpu
-            max_uint64  // mem
-        );
+        return new ExBudget({
+            cpu: max_uint64, // cpu
+            mem: max_uint64  // mem
+        });
+    }
+
+    static unlimited(): ExBudget
+    {
+        return new ExBudget({
+            cpu: I64_MAX, // cpu
+            mem: I64_MAX  // mem
+        });
+    }
+
+    static zero(): ExBudget
+    {
+        return new ExBudget({
+            cpu: BigInt(0), // cpu
+            mem: BigInt(0)  // mem
+        });
     }
 
     clone(): ExBudget
     {
-        return new ExBudget( this.cpu, this.mem );
+        return new ExBudget( this );
     }
 
     toCborBytes(): Uint8Array
     {
-        return this.toCbor().toBuffer();
+        return this.toCbor();
     }
-    toCbor(): CborString
+    toCbor(): Uint8Array
     {
         return Cbor.encode( this.toCborObj() );
     }

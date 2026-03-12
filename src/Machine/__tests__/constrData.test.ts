@@ -15,9 +15,9 @@ describe("constrData execution", () => {
             UPLCConst.listOf( constT.data )([])
         );
 
-        const res = Machine.eval( term );
+        const res = Machine.evalSimple( term );
 
-        expect( res.result ).toEqual( CEKConst.data( new DataConstr(0,[]) ) );
+        expect( res ).toEqual( CEKConst.data( new DataConstr(0,[]) ) );
         // console.log( res.budgetSpent.toJson() )
     })
 })

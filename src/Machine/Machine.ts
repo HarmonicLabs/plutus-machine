@@ -1,4 +1,4 @@
-import { AnyV1CostModel, AnyV2CostModel, AnyV3CostModel, CostModelPlutusV3, costModelV1ToFakeV3, costModelV2ToFakeV3, defaultV3Costs, isCostModelsV1, isCostModelsV2, isCostModelsV3, toCostModelV3 } from "@harmoniclabs/cardano-costmodels-ts";
+import { AnyV1CostModel, AnyV2CostModel, AnyV3CostModel, AnyV4CostModel, CostModelPlutusV4, costModelV1ToFakeV3, costModelV2ToFakeV3, costModelV3ToFakeV4, defaultV4Costs, isCostModelsV1, isCostModelsV2, isCostModelsV3, isCostModelsV4, toCostModelV4 } from "@harmoniclabs/cardano-costmodels-ts";
 import { ExBudget, IExBudget } from "./ExBudget";
 import { getNRequiredForces, isUPLCTerm, ToUPLC, UPLCBuiltinTag, UPLCTerm, UPLCTermObj } from "@harmoniclabs/uplc";
 import { CEKConst, CEKConstr, CEKDelay, CEKError, CEKLambda, CEKValue, CEKValueObj, ICEKConst, ICEKConstr, ICEKLambda, ICEKValue, TypedCEKConst } from "../CEKValue";
@@ -7,7 +7,7 @@ import { MachineStateTag } from "../_internal/MachineStateTag";
 import { MachineContextTag } from "../_internal/MachineContextTag";
 import { CEKEnv, extendEnv, lookupEnv } from "../CEKEnv";
 import { costModelToMachineCosts, MachineCosts } from "./MachineCosts";
-import { BuiltinCostsOf, costModelV3ToBuiltinCosts } from "./BuiltinCosts";
+import { costModelV4ToBuiltinCosts } from "./BuiltinCosts";
 import { UPLCTermTag } from "@harmoniclabs/uplc/dist/UPLCTerm/UPLCTermTag";
 import { FrameAwaitArg, FrameAwaitFunTerm, FrameAwaitFunValue, FrameCases, FrameConstr, MachineContext } from "./MachineContext";
 import { BnCEK, PartialBuiltin } from "../BnCEK";
@@ -33,7 +33,7 @@ export class Machine {
     private budget: ExBudget;
     private restricting: boolean;
     private unbudgetedSteps: Uint32Array;
-    private builtinCosts: CostModelPlutusV3;
+    private builtinCosts: CostModelPlutusV4;
 
     private spendBudget(cost: IExBudget): CEKError | undefined {
         this.budget.sub(cost);
@@ -49,7 +49,7 @@ export class Machine {
     private logs: string[] = [];
 
     constructor(
-        costmodel: AnyV1CostModel | AnyV2CostModel | AnyV3CostModel = defaultV3Costs,
+        costmodel: AnyV1CostModel | AnyV2CostModel | AnyV3CostModel | AnyV4CostModel = defaultV4Costs,
         initialBudget?: ExBudget
     ) {
         const unlimitedBudget = ExBudget.unlimited();
@@ -61,23 +61,23 @@ export class Machine {
         this.restricting = initial.cpu !== unlimitedBudget.cpu || initial.mem !== unlimitedBudget.mem;
         this.unbudgetedSteps = new Uint32Array(STEP_COUNT + 1);
 
-        const isV1 = isCostModelsV1(costmodel);
-        const isV2 = isCostModelsV2(costmodel);
+        const isV4 = isCostModelsV4(costmodel);
         const isV3 = isCostModelsV3(costmodel);
-        if (!(isV3 || isV2 || isV1)) throw new Error("invalid machine costs");
+        const isV2 = isCostModelsV2(costmodel);
+        const isV1 = isCostModelsV1(costmodel);
+        if (!(isV4 || isV3 || isV2 || isV1)) throw new Error("invalid machine costs");
 
         // ALWAYS CHECK LATEST VERSION FIRST
-        this.builtinCosts = isV3 ? toCostModelV3(costmodel) :
-            isV2 ? costModelV2ToFakeV3(costmodel) :
-                isV1 ? costModelV1ToFakeV3(costmodel) :
-                    defaultV3Costs; // never; we throw before
-
+        this.builtinCosts = isV4 ? toCostModelV4(costmodel as AnyV4CostModel) :
+            isV3 ? costModelV3ToFakeV4(costmodel as AnyV3CostModel) :
+            isV2 ? costModelV3ToFakeV4(costModelV2ToFakeV3(costmodel as AnyV2CostModel)) :
+                   costModelV3ToFakeV4(costModelV1ToFakeV3(costmodel as AnyV1CostModel));
 
         this.machineCosts = costModelToMachineCosts(this.builtinCosts);
         this.logs = [];
 
         this.builtinEvaluator = new BnCEK(
-            costModelV3ToBuiltinCosts(this.builtinCosts),
+            costModelV4ToBuiltinCosts(this.builtinCosts),
             this.budget,
             this.logs
         );
@@ -619,4 +619,4 @@ export function transferArgStack(fields: CEKValueObj[], ctx: MachineContext): Ma
     return c;
 }
 
-const defaultMachine = new Machine( defaultV3Costs );
+const defaultMachine = new Machine( defaultV4Costs );

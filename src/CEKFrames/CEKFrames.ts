@@ -97,11 +97,11 @@ export function showFrames( frames: Readonly<CEKFrames> ): string
         }
         else if( topFrame instanceof LApp )
         {
-            res = `[ ${showUPLC(topFrame.func)} ${res} ]`
+            res = `[ ${showUPLC(topFrame.func as any)} ${res} ]`
         }
         else if( topFrame instanceof RApp )
         {
-            res = `[ ${res} ${showUPLC(topFrame.arg)} ]`
+            res = `[ ${res} ${showUPLC(topFrame.arg as any)} ]`
         }
         else if( topFrame instanceof ConstrFrame )
         {

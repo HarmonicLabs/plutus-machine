@@ -1,21 +1,74 @@
-import { ByteString } from "@harmoniclabs/bytestring";
 import { BlsG1, BlsG2, BlsResult } from "@harmoniclabs/crypto";
 import { Data } from "@harmoniclabs/plutus-data";
-import { ConstType, ConstValue, ConstValueList, UPLCConst } from "@harmoniclabs/uplc";
+import { ConstType, ConstTyTag, ConstValue, ConstValueList, IUPLCConst, UPLCConst } from "@harmoniclabs/uplc";
+import { ICEKValue } from "./CEKValue";
+import { CEKValueTag } from "../_internal/CEKValueTag";
+
+export type TypedCEKConst
+    = ICEKConstInt
+    | ICEKConstBool
+    | ICEKConstUnit
+    | ICEKConstPair
+    | ICEKConstList
+    // | AnyTypedCEKConst
+    ;
+
+export interface ICEKConstInt {
+    typeTag: ConstTyTag.int;
+    value: bigint;
+}
+
+export interface ICEKConstBool {
+    typeTag: ConstTyTag.bool;
+    value: boolean;
+}
+
+export interface ICEKConstUnit {
+    typeTag: ConstTyTag.unit;
+    value: undefined;
+}
+
+export interface ICEKConstPair {
+    type: ConstType;
+    typeTag: ConstTyTag.pair;
+    value: { fst: ConstValue, snd: ConstValue };
+}
+
+export interface ICEKConstList {
+    type: ConstType;
+    typeTag: ConstTyTag.list;
+    value: ConstValueList
+}
+
+export interface AnyTypedCEKConst {
+    typeTag: ConstTyTag;
+    value: ConstValue;
+}
+
+export interface ICEKConst extends ICEKValue {
+    tag: CEKValueTag.Const;
+    type: ConstType;
+    typeTag: ConstTyTag;
+    value: ConstValue;
+}
 
 export class CEKConst
+    implements ICEKConst
 {
+    readonly tag: CEKValueTag.Const = CEKValueTag.Const;
     type: ConstType
+    typeTag: ConstTyTag
     value: ConstValue
 
     constructor( type: ConstType, value: ConstValue )
     {
         this.type = type;
+        this.typeTag = type[0];
         this.value = value;
     }
 
     static fromUplc(
-        uplc: UPLCConst | CEKConst
+        uplc: UPLCConst | IUPLCConst | CEKConst
     ): CEKConst
     {
         if( uplc instanceof CEKConst ) return uplc;
@@ -38,7 +91,7 @@ export class CEKConst
         return CEKConst.fromUplc( UPLCConst.int( int ) );
     }
 
-    static byteString( bs: ByteString ): CEKConst
+    static byteString( bs: Uint8Array ): CEKConst
     {
         return CEKConst.fromUplc( UPLCConst.byteString( bs ) );
     }

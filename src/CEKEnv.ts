@@ -1,50 +1,19 @@
-import { UPLCTerm } from "@harmoniclabs/uplc";
-import { CEKHeap } from "./CEKHeap";
-import { CEKValue } from "./CEKValue/CEKValue";
+import { CEKValueObj } from "./CEKValue/CEKValue";
 
-export class CEKEnv
-{
-    private _heapRef: CEKHeap;
-    private _heapPtrs: number[];
+// Persistent linked list — O(1) extend, O(n) lookup where n is the de Bruijn index.
+export type CEKEnv = { value: CEKValueObj; next: CEKEnv } | undefined;
 
-    constructor( heapRef: CEKHeap, init: number[] = [] )
-    {
-        this._heapRef = heapRef;
-        this._heapPtrs = init;
+export function extendEnv(env: CEKEnv, value: CEKValueObj): CEKEnv {
+    return { value, next: env };
+}
+
+export function lookupEnv(env: CEKEnv, dbn: number): CEKValueObj | undefined {
+    let current = env;
+    let i = dbn;
+    while (current !== undefined) {
+        if (i === 0) return current.value;
+        i--;
+        current = current.next;
     }
-
-    clone(): CEKEnv
-    {
-        return new CEKEnv( this._heapRef, this._heapPtrs.map( ptr => ptr ) )
-    }
-
-    push( varValue: CEKValue ): void
-    {
-        this._heapPtrs.push( this._heapRef.add( varValue ) );
-    }
-
-    get( dbn: number | bigint ): CEKValue | undefined
-    {
-        const _dbn: number = 
-            typeof dbn === "bigint" ? Number( dbn ):
-            dbn;
-        if( (this._heapPtrs.length - _dbn) < 1 ) return undefined;
-        return this._heapRef.get( this._heapPtrs[ this._heapPtrs.length - 1 - _dbn ] );
-    }
-
-    static eq( a: CEKEnv, b: CEKEnv ): boolean
-    {
-        if(!(
-            a instanceof CEKEnv ||
-            b instanceof CEKEnv
-        )) return false;
-    
-        if( a === b ) return true; // shallow eq
-
-        return (
-            a._heapRef === b._heapRef &&
-            a._heapPtrs.length === b._heapPtrs.length &&
-            a._heapPtrs.every(( ptr,i ) => ptr === b._heapPtrs[i] )
-        );
-    }
+    return undefined;
 }

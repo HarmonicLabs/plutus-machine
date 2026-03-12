@@ -26,7 +26,7 @@ export class RApp
     {
         return new RApp(
             this.arg.clone(),
-            this.env.clone(),
+            this.env,
             this.src
         );
     }

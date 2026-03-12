@@ -1,42 +1,56 @@
-import { UPLCBuiltinTag, UPLCTerm } from "@harmoniclabs/uplc";
+import { UPLCBuiltinTag, UPLCTerm, UPLCTermObj } from "@harmoniclabs/uplc";
+import { CEKValueObj, ICEKValue } from "../CEKValue";
+import { CEKValueTag } from "../_internal/CEKValueTag";
+
+export interface IPartialBuiltin extends ICEKValue {
+    readonly tag: CEKValueTag.PartialBuiltin;
+    readonly builtinTag: UPLCBuiltinTag;
+    readonly args: CEKValueObj[];
+    readonly nRequiredArgs: number;
+    forces: number;
+}
 
 export class PartialBuiltin
+    implements IPartialBuiltin
 {
-    private _tag: UPLCBuiltinTag;
-    private _args: UPLCTerm[];
-    private _nRequiredArgs: number;
+    readonly tag: CEKValueTag.PartialBuiltin = CEKValueTag.PartialBuiltin;
+    builtinTag: UPLCBuiltinTag;
+    args: CEKValueObj[];
+    nRequiredArgs: number;
+    forces: number;
 
-    get tag(): UPLCBuiltinTag { return this._tag; }
-    get args(): UPLCTerm[] { return this._args; }
-
-    constructor( tag: UPLCBuiltinTag, args: UPLCTerm[] = [] )
+    constructor(
+        builtinTag: UPLCBuiltinTag,
+        args: CEKValueObj[] = [],
+        forces: number = 0
+    )
     {
-        this._tag = tag;
-        this._args = args;
-        this._nRequiredArgs = PartialBuiltin.getNRequiredArgsFor( tag );
+        this.builtinTag = builtinTag;
+        this.args = args;
+        this.nRequiredArgs = PartialBuiltin.getNRequiredArgsFor( builtinTag );
+        this.forces = forces;
     }
 
     clone(): PartialBuiltin
     {
-        return new PartialBuiltin( this._tag, this._args.map( arg => arg.clone() ) );
+        return new PartialBuiltin(
+            this.builtinTag,
+            // this.args.map( arg => arg.clone() )
+            this.args.slice()
+        );
     }
 
     get nMissingArgs(): number
     {
-        return this._nRequiredArgs - this._args.length;
-    }
-
-    apply( arg: UPLCTerm ): void
-    {
-        this._args.push( arg );
+        return this.nRequiredArgs - this.args.length;
     }
 
     /**
      * @todo
      */
-    static getNRequiredArgsFor( tag: UPLCBuiltinTag ): ( 0 | 1 | 2 | 3 | 6 )
+    static getNRequiredArgsFor( builtinTag: UPLCBuiltinTag ): ( 0 | 1 | 2 | 3 | 4 | 6 )
     {
-        switch( tag )
+        switch( builtinTag )
         {
             case UPLCBuiltinTag.addInteger :                        return 2;
             case UPLCBuiltinTag.subtractInteger :                   return 2;
@@ -128,9 +142,25 @@ export class PartialBuiltin
             case UPLCBuiltinTag.countSetBits:                       return 1;
             case UPLCBuiltinTag.findFirstSetBit:                    return 1;
             case UPLCBuiltinTag.ripemd_160:                         return 1;
-            
+
+            // Chang2 / Plutus V4
+            case UPLCBuiltinTag.expModInteger:                      return 3;
+            case UPLCBuiltinTag.dropList:                           return 2;
+            case UPLCBuiltinTag.lengthOfArray:                      return 1;
+            case UPLCBuiltinTag.listToArray:                        return 1;
+            case UPLCBuiltinTag.indexArray:                         return 2;
+            case UPLCBuiltinTag.bls12_381_G1_multiScalarMul:        return 2;
+            case UPLCBuiltinTag.bls12_381_G2_multiScalarMul:        return 2;
+            case UPLCBuiltinTag.insertCoin:                         return 4;
+            case UPLCBuiltinTag.lookupCoin:                         return 3;
+            case UPLCBuiltinTag.unionValue:                         return 2;
+            case UPLCBuiltinTag.valueContains:                      return 2;
+            case UPLCBuiltinTag.valueData:                          return 1;
+            case UPLCBuiltinTag.unValueData:                        return 1;
+            case UPLCBuiltinTag.scaleValue:                         return 2;
+
             default:
-                throw new Error("unrecognized builtin: " + tag);
+                throw new Error("unrecognized builtin: " + builtinTag);
         }
     }
 }

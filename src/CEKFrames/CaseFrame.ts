@@ -20,7 +20,7 @@ export class CaseFrame
     {
         return new CaseFrame(
             this.terms.map( t => t.clone() ),
-            this.env.clone(),
+            this.env,
             this.src
         );
     }

@@ -1,6 +1,6 @@
 import { UPLCBuiltinTag } from "@harmoniclabs/uplc";
-import { ConstMinOrQuadratic2InXY, ConstYOrLinearZ, CostFunction, FixedCost, Linear1, Linear2InBothAdd, Linear2InBothMult, Linear2InBothSub, Linear2InMax, Linear2InMin, Linear2InX, Linear2InY, Linear3InMaxYZ, Linear3InX, Linear3InY, Linear3InYAndZ, Linear3InZ, LinearOnEqualXY, OneArg, Quadratic2InY, Quadratic3InZ, SixArgs, ThreeArgs, TwoArgs, XGtEqOrConst, YGtEqOrConst } from "./costFunctions";
-import { AnyV1CostModel, costModelV1ToFakeV2, AnyV2CostModel, toCostModelV2, isCostModelsV2, costModelV2ToFakeV3, costModelV1ToFakeV3, AnyV3CostModel, toCostModelV3, isCostModelsV3 } from "@harmoniclabs/cardano-costmodels-ts";
+import { ConstMinOrQuadratic2InXY, ConstYOrLinearZ, CostFunction, ExpModCost, FixedCost, Linear1, Linear2InBothAdd, Linear2InBothMult, Linear2InBothSub, Linear2InMax, Linear2InMin, Linear2InX, Linear2InY, Linear3InMaxYZ, Linear3InX, Linear3InY, Linear3InYAndZ, Linear3InZ, LinearOnEqualXY, OneArg, Quadratic1, Quadratic2InY, Quadratic3InZ, SixArgs, ThreeArgs, TwoArgs, WithInteraction, XGtEqOrConst, YGtEqOrConst } from "./costFunctions";
+import { AnyV1CostModel, costModelV1ToFakeV2, AnyV2CostModel, toCostModelV2, isCostModelsV2, costModelV2ToFakeV3, costModelV1ToFakeV3, AnyV3CostModel, toCostModelV3, isCostModelsV3, AnyV4CostModel, isCostModelsV4, toCostModelV4, costModelV3ToFakeV4, CostModelPlutusV4 } from "@harmoniclabs/cardano-costmodels-ts";
 import { defineReadOnlyProperty, hasOwn } from "@harmoniclabs/obj-utils";
 import { assert } from "../../utils/assert";
 
@@ -101,6 +101,21 @@ export type BuiltinCostsOf<Tag extends UPLCBuiltinTag> =
     Tag extends UPLCBuiltinTag.findFirstSetBit ?            ExecCostFuncs<OneArg> :
     Tag extends UPLCBuiltinTag.ripemd_160 ?                 ExecCostFuncs<OneArg> :
     // Tag extends UPLCBuiltinTag.byteStringToInteger ?        ExecCostFuncs<TwoArg> :
+    // V4 builtins
+    Tag extends UPLCBuiltinTag.expModInteger ?              ExecCostFuncs<ThreeArgs> :
+    Tag extends UPLCBuiltinTag.dropList ?                   ExecCostFuncs<TwoArgs> :
+    Tag extends UPLCBuiltinTag.lengthOfArray ?              ExecCostFuncs<OneArg> :
+    Tag extends UPLCBuiltinTag.listToArray ?                ExecCostFuncs<OneArg> :
+    Tag extends UPLCBuiltinTag.indexArray ?                 ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.bls12_381_G1_multiScalarMul ? ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.bls12_381_G2_multiScalarMul ? ExecCostFuncs<TwoArgs> :
+    Tag extends UPLCBuiltinTag.insertCoin ?                 ExecCostFuncs<OneArg> :
+    Tag extends UPLCBuiltinTag.lookupCoin ?                 ExecCostFuncs<ThreeArgs> :
+    // Tag extends UPLCBuiltinTag.unionValue ?                 ExecCostFuncs<TwoArgs> :
+    // Tag extends UPLCBuiltinTag.valueContains ?              ExecCostFuncs<TwoArgs> :
+    Tag extends UPLCBuiltinTag.valueData ?                  ExecCostFuncs<OneArg> :
+    Tag extends UPLCBuiltinTag.unValueData ?                ExecCostFuncs<OneArg> :
+    // Tag extends UPLCBuiltinTag.scaleValue ?                 ExecCostFuncs<TwoArgs> :
     ExecCostFuncs<TwoArgs>
     // never;
 
@@ -917,8 +932,178 @@ export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel ): <Tag exte
                 // tag; // check it is type "never"
                 throw new Error("unmatched builtin cost")
         }
-    
+
         throw new Error("unmatched builtin cost")
+
+    }) as <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>;
+}
+
+export function costModelV4ToBuiltinCosts( costmdls: AnyV4CostModel ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
+{
+    const costs = { ...toCostModelV4( costmdls ) } as CostModelPlutusV4;
+    assert(
+        isCostModelsV4( costs ),
+        "invalid cost models passed"
+    );
+
+    const v3Handler = costModelV3ToBuiltinCosts( costs );
+    const cache: ToBuiltinCache = {} as any;
+
+    return (( tag: UPLCBuiltinTag ) => {
+
+        if( hasOwn( cache, tag ) ) return cache[tag];
+
+        function readonly<Tag extends typeof tag>( c: ExecCostFuncs<CostFunction> ): BuiltinCostsOf<Tag>
+        {
+            const result: BuiltinCostsOf<Tag> = {} as any;
+            defineReadOnlyProperty( result, "mem", c.mem );
+            defineReadOnlyProperty( result, "cpu", c.cpu );
+            defineReadOnlyProperty( cache, tag, result );
+            return result;
+        }
+
+        switch( tag )
+        {
+            case UPLCBuiltinTag.expModInteger:
+                return readonly({
+                    cpu: new ExpModCost(
+                        BigInt( costs["expModInteger-cpu-arguments-coefficient00"] ),
+                        BigInt( costs["expModInteger-cpu-arguments-coefficient11"] ),
+                        BigInt( costs["expModInteger-cpu-arguments-coefficient12"] ),
+                    ),
+                    mem: new Linear3InZ(
+                        BigInt( costs["expModInteger-memory-arguments-intercept"] ),
+                        BigInt( costs["expModInteger-memory-arguments-slope"] ),
+                    )
+                });
+            case UPLCBuiltinTag.dropList:
+                return readonly({
+                    cpu: new Linear2InX(
+                        BigInt( costs["dropList-cpu-arguments-intercept"] ),
+                        BigInt( costs["dropList-cpu-arguments-slope"] ),
+                    ),
+                    mem: new FixedCost( BigInt( costs["dropList-memory-arguments"] ) )
+                });
+            case UPLCBuiltinTag.lengthOfArray:
+                return readonly({
+                    cpu: new FixedCost( BigInt( costs["lengthOfArray-cpu-arguments"] ) ),
+                    mem: new FixedCost( BigInt( costs["lengthOfArray-memory-arguments"] ) )
+                });
+            case UPLCBuiltinTag.listToArray:
+                return readonly({
+                    cpu: new Linear1(
+                        BigInt( costs["listToArray-cpu-arguments-intercept"] ),
+                        BigInt( costs["listToArray-cpu-arguments-slope"] ),
+                    ),
+                    mem: new Linear1(
+                        BigInt( costs["listToArray-memory-arguments-intercept"] ),
+                        BigInt( costs["listToArray-memory-arguments-slope"] ),
+                    )
+                });
+            case UPLCBuiltinTag.indexArray:
+                return readonly({
+                    cpu: new FixedCost( BigInt( costs["indexArray-cpu-arguments"] ) ),
+                    mem: new FixedCost( BigInt( costs["indexArray-memory-arguments"] ) )
+                });
+            case UPLCBuiltinTag.bls12_381_G1_multiScalarMul:
+                return readonly({
+                    cpu: new Linear2InX(
+                        BigInt( costs["bls12_381_G1_multiScalarMul-cpu-arguments-intercept"] ),
+                        BigInt( costs["bls12_381_G1_multiScalarMul-cpu-arguments-slope"] ),
+                    ),
+                    mem: new FixedCost( BigInt( costs["bls12_381_G1_multiScalarMul-memory-arguments"] ) )
+                });
+            case UPLCBuiltinTag.bls12_381_G2_multiScalarMul:
+                return readonly({
+                    cpu: new Linear2InX(
+                        BigInt( costs["bls12_381_G2_multiScalarMul-cpu-arguments-intercept"] ),
+                        BigInt( costs["bls12_381_G2_multiScalarMul-cpu-arguments-slope"] ),
+                    ),
+                    mem: new FixedCost( BigInt( costs["bls12_381_G2_multiScalarMul-memory-arguments"] ) )
+                });
+            case UPLCBuiltinTag.insertCoin:
+                return readonly({
+                    cpu: new Linear1(
+                        BigInt( costs["insertCoin-cpu-arguments-intercept"] ),
+                        BigInt( costs["insertCoin-cpu-arguments-slope"] ),
+                    ),
+                    mem: new Linear1(
+                        BigInt( costs["insertCoin-memory-arguments-intercept"] ),
+                        BigInt( costs["insertCoin-memory-arguments-slope"] ),
+                    )
+                });
+            case UPLCBuiltinTag.lookupCoin:
+                return readonly({
+                    cpu: new Linear3InZ(
+                        BigInt( costs["lookupCoin-cpu-arguments-intercept"] ),
+                        BigInt( costs["lookupCoin-cpu-arguments-slope"] ),
+                    ),
+                    mem: new FixedCost( BigInt( costs["lookupCoin-memory-arguments"] ) )
+                });
+            case UPLCBuiltinTag.unionValue:
+                return readonly({
+                    cpu: new WithInteraction(
+                        BigInt( costs["unionValue-cpu-arguments-c00"] ),
+                        BigInt( costs["unionValue-cpu-arguments-c10"] ),
+                        BigInt( costs["unionValue-cpu-arguments-c01"] ),
+                        BigInt( costs["unionValue-cpu-arguments-c11"] ),
+                    ),
+                    mem: new Linear2InBothAdd(
+                        BigInt( costs["unionValue-memory-arguments-intercept"] ),
+                        BigInt( costs["unionValue-memory-arguments-slope"] ),
+                    )
+                });
+            case UPLCBuiltinTag.valueContains:
+                return readonly({
+                    cpu: new ConstMinOrQuadratic2InXY(
+                        BigInt( costs["valueContains-cpu-arguments-constant"] ),
+                        BigInt(0),
+                        BigInt( costs["valueContains-cpu-arguments-model-arguments-intercept"] ),
+                        BigInt( costs["valueContains-cpu-arguments-model-arguments-slope2"] ),
+                        BigInt(0),
+                        BigInt( costs["valueContains-cpu-arguments-model-arguments-slope1"] ),
+                        BigInt(0),
+                        BigInt(0),
+                    ),
+                    mem: new FixedCost( BigInt( costs["valueContains-memory-arguments"] ) )
+                });
+            case UPLCBuiltinTag.valueData:
+                return readonly({
+                    cpu: new Linear1(
+                        BigInt( costs["valueData-cpu-arguments-intercept"] ),
+                        BigInt( costs["valueData-cpu-arguments-slope"] ),
+                    ),
+                    mem: new Linear1(
+                        BigInt( costs["valueData-memory-arguments-intercept"] ),
+                        BigInt( costs["valueData-memory-arguments-slope"] ),
+                    )
+                });
+            case UPLCBuiltinTag.unValueData:
+                return readonly({
+                    cpu: new Quadratic1(
+                        BigInt( costs["unValueData-cpu-arguments-c0"] ),
+                        BigInt( costs["unValueData-cpu-arguments-c1"] ),
+                        BigInt( costs["unValueData-cpu-arguments-c2"] ),
+                    ),
+                    mem: new Linear1(
+                        BigInt( costs["unValueData-memory-arguments-intercept"] ),
+                        BigInt( costs["unValueData-memory-arguments-slope"] ),
+                    )
+                });
+            case UPLCBuiltinTag.scaleValue:
+                return readonly({
+                    cpu: new Linear2InY(
+                        BigInt( costs["scaleValue-cpu-arguments-intercept"] ),
+                        BigInt( costs["scaleValue-cpu-arguments-slope"] ),
+                    ),
+                    mem: new Linear2InY(
+                        BigInt( costs["scaleValue-memory-arguments-intercept"] ),
+                        BigInt( costs["scaleValue-memory-arguments-slope"] ),
+                    )
+                });
+            default:
+                return v3Handler( tag );
+        }
 
     }) as <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>;
 }

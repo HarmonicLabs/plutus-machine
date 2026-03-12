@@ -74,6 +74,29 @@ function listToSize( l: ConstValue[] ): bigint
     return l.reduce<bigint>( (acc, elem) => acc + constValueToSize( elem ), BigInt(0) );
 }
 
+/** Total number of token entries across all policies in a LedgerValue */
+function ledgerValueSizeExMem( v: LedgerValue ): bigint
+{
+    let size = 0;
+    for( const entry of v ) size += entry.snd.length;
+    return BigInt( size );
+}
+
+/**
+ * Logarithmic depth metric for LedgerValue, used by insertCoin / lookupCoin cost models.
+ * floor(log2(outerLen))+1 + floor(log2(maxInner))+1
+ */
+function ledgerValueMaxDepth( v: LedgerValue ): bigint
+{
+    const outerLen = v.length;
+    let maxInner = 0;
+    for( const entry of v )
+        if( entry.snd.length > maxInner ) maxInner = entry.snd.length;
+    const logOuter = outerLen > 0 ? Math.floor( Math.log2( outerLen ) ) + 1 : 0;
+    const logInner = maxInner > 0 ? Math.floor( Math.log2( maxInner ) ) + 1 : 0;
+    return BigInt( logOuter + logInner );
+}
+
 function pairToSize( pairValue: Pair<ConstValue,ConstValue> ): bigint
 {
     return constValueToSize( pairValue.fst ) + constValueToSize( pairValue.snd )
@@ -2872,6 +2895,11 @@ export class BnCEK
         const mod  = getInt( _mod );
         if( base === undefined || exp === undefined || mod === undefined )
             return new CEKError( "expModInteger :: invalid arguments", { _base, _exp, _mod } );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.expModInteger );
+        const sb = intToSize( base );
+        const se = intToSize( exp );
+        const sm = intToSize( mod );
+        this.machineBudget.sub({ mem: f.mem.at( sb, se, sm ), cpu: f.cpu.at( sb, se, sm ) });
         if( mod <= _bigintZero ) return new CEKError( "expModInteger :: modulus must be positive" );
         if( mod === _bigintOne ) return CEKConst.int( _bigintZero );
         if( exp === _bigintZero ) return CEKConst.int( _bigintOne );
@@ -2891,6 +2919,10 @@ export class BnCEK
         const list = getList( _list );
         if( n === undefined || list === undefined )
             return new CEKError( "dropList :: invalid arguments", { _n, _list } );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.dropList );
+        const sn = intToSize( n );
+        const sl = listToSize( list );
+        this.machineBudget.sub({ mem: f.mem.at( sn, sl ), cpu: f.cpu.at( sn, sl ) });
         if( n <= _bigintZero ) return new CEKConst( (_list as CEKConst).type, list as any );
         const dropped = list.slice( Number( n < BigInt(list.length) ? n : BigInt(list.length) ) );
         return new CEKConst( (_list as CEKConst).type, dropped as any );
@@ -2900,6 +2932,8 @@ export class BnCEK
     {
         const arr = getList( _arr );
         if( arr === undefined ) return new CEKError( "lengthOfArray :: not an array", { _arr } );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.lengthOfArray );
+        this.machineBudget.sub({ mem: f.mem.at( _bigintOne ), cpu: f.cpu.at( _bigintOne ) });
         return CEKConst.int( BigInt( arr.length ) );
     }
 
@@ -2907,6 +2941,9 @@ export class BnCEK
     {
         const list = getList( _list );
         if( list === undefined ) return new CEKError( "listToArray :: not a list", { _list } );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.listToArray );
+        const sl = listToSize( list );
+        this.machineBudget.sub({ mem: f.mem.at( sl ), cpu: f.cpu.at( sl ) });
         const listType = (_list as CEKConst).type;
         const elemType = constListTypeUtils.getTypeArgument( listType as any );
         return new CEKConst( (constT as any).arrayOf( elemType ), list as any );
@@ -2918,6 +2955,8 @@ export class BnCEK
         const idx = getInt( _idx );
         if( arr === undefined || idx === undefined )
             return new CEKError( "indexArray :: invalid arguments", { _arr, _idx } );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.indexArray );
+        this.machineBudget.sub({ mem: f.mem.at( _bigintOne, _bigintOne ), cpu: f.cpu.at( _bigintOne, _bigintOne ) });
         if( idx < _bigintZero || idx >= BigInt( arr.length ) )
             return new CEKError( "indexArray :: index out of bounds", { idx, length: arr.length } );
         const elemType = (constArrayTypeUtils as any).getTypeArgument( (_arr as CEKConst).type );
@@ -2930,6 +2969,9 @@ export class BnCEK
         const points  = getList( _points );
         if( scalars === undefined || points === undefined )
             return new CEKError( "bls12_381_G1_multiScalarMul :: invalid arguments" );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.bls12_381_G1_multiScalarMul );
+        const sLen = BigInt( Math.min( scalars.length, points.length ) );
+        this.machineBudget.sub({ mem: f.mem.at( sLen, sLen ), cpu: f.cpu.at( sLen, sLen ) });
         const len = Math.min( scalars.length, points.length );
         const G1 = noble_bls12_381.G1.ProjectivePoint;
         if( len === 0 ) return new CEKConst( constT.bls12_381_G1_element, G1.ZERO );
@@ -2957,6 +2999,9 @@ export class BnCEK
         const points  = getList( _points );
         if( scalars === undefined || points === undefined )
             return new CEKError( "bls12_381_G2_multiScalarMul :: invalid arguments" );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.bls12_381_G2_multiScalarMul );
+        const sLen = BigInt( Math.min( scalars.length, points.length ) );
+        this.machineBudget.sub({ mem: f.mem.at( sLen, sLen ), cpu: f.cpu.at( sLen, sLen ) });
         const len = Math.min( scalars.length, points.length );
         const G2 = noble_bls12_381.G2.ProjectivePoint;
         if( len === 0 ) return new CEKConst( constT.bls12_381_G2_element, G2.ZERO );
@@ -2986,6 +3031,9 @@ export class BnCEK
         const v   = getLedgerValue( _v );
         if( cs === undefined || tn === undefined || qty === undefined || v === undefined )
             return new CEKError( "insertCoin :: invalid arguments" );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.insertCoin );
+        const sv = ledgerValueMaxDepth( v );
+        this.machineBudget.sub({ mem: f.mem.at( sv ), cpu: f.cpu.at( sv ) });
         const MAX_KEY = 32;
         if( qty === _bigintZero )
         {
@@ -3006,6 +3054,11 @@ export class BnCEK
         const v  = getLedgerValue( _v );
         if( cs === undefined || tn === undefined || v === undefined )
             return new CEKError( "lookupCoin :: invalid arguments" );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.lookupCoin );
+        const scs = bsToSize( cs );
+        const stn = bsToSize( tn );
+        const sv  = ledgerValueMaxDepth( v );
+        this.machineBudget.sub({ mem: f.mem.at( scs, stn, sv ), cpu: f.cpu.at( scs, stn, sv ) });
         return CEKConst.int( ledgerLookupCoin( v, cs, tn ) );
     }
 
@@ -3015,6 +3068,10 @@ export class BnCEK
         const v2 = getLedgerValue( _v2 );
         if( v1 === undefined || v2 === undefined )
             return new CEKError( "unionValue :: invalid arguments" );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.unionValue );
+        const sv1 = ledgerValueSizeExMem( v1 );
+        const sv2 = ledgerValueSizeExMem( v2 );
+        this.machineBudget.sub({ mem: f.mem.at( sv1, sv2 ), cpu: f.cpu.at( sv1, sv2 ) });
         try { return new CEKConst( constT.value, ledgerUnion( v1, v2 ) as any ); }
         catch( e: any ) { return new CEKError( e.message ); }
     }
@@ -3025,6 +3082,10 @@ export class BnCEK
         const v2 = getLedgerValue( _v2 );
         if( v1 === undefined || v2 === undefined )
             return new CEKError( "valueContains :: invalid arguments" );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.valueContains );
+        const sv1 = ledgerValueSizeExMem( v1 );
+        const sv2 = ledgerValueSizeExMem( v2 );
+        this.machineBudget.sub({ mem: f.mem.at( sv1, sv2 ), cpu: f.cpu.at( sv1, sv2 ) });
         for( const outer of v1 )
             for( const inner of outer.snd )
                 if( inner.snd < _bigintZero ) return new CEKError( "valueContains :: negative quantity in first value" );
@@ -3042,6 +3103,9 @@ export class BnCEK
     {
         const v = getLedgerValue( _v );
         if( v === undefined ) return new CEKError( "valueData :: not a value", { _v } );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.valueData );
+        const sv = ledgerValueSizeExMem( v );
+        this.machineBudget.sub({ mem: f.mem.at( sv ), cpu: f.cpu.at( sv ) });
         const outerEntries: any[] = [];
         for( const outer of v )
         {
@@ -3058,6 +3122,9 @@ export class BnCEK
         const d = getData( _d );
         if( d === undefined || !( d instanceof DataMap ) )
             return new CEKError( "unValueData :: expected map data" );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.unValueData );
+        const sd = dataToSize( d );
+        this.machineBudget.sub({ mem: f.mem.at( sd ), cpu: f.cpu.at( sd ) });
         const MAX_KEY = 32;
         const result: LedgerValue = [];
         let prevCcy: Uint8Array | null = null;
@@ -3099,6 +3166,10 @@ export class BnCEK
         const v = getLedgerValue( _v );
         if( n === undefined || v === undefined )
             return new CEKError( "scaleValue :: invalid arguments" );
+        const f = this.getBuiltinCostFunc( UPLCBuiltinTag.scaleValue );
+        const sn = intToSize( n );
+        const sv = ledgerValueSizeExMem( v );
+        this.machineBudget.sub({ mem: f.mem.at( sn, sv ), cpu: f.cpu.at( sn, sv ) });
         if( n === _bigintZero ) return new CEKConst( constT.value, [] as any );
         const result: LedgerValue = [];
         for( const outer of v )

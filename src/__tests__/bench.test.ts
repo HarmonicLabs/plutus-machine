@@ -1,6 +1,6 @@
 import { eqUPLCTerm, parseUPLC, parseUPLCText } from "@harmoniclabs/uplc";
 import { readFileSync, readdirSync } from "fs";
-import { Machine } from "../Machine/Machine";
+import { Machine } from "../Machine";
 import { CEKError } from "../CEKValue/CEKError";
 import { CEKValue, eqCEKValue } from "../CEKValue";
 import { CEKDelay } from "../CEKValue/CEKDelay";
@@ -65,34 +65,9 @@ function testDir( path: string )
 
     test("final",() => {
         const avg = times.reduce( (a,b) => a + b, 0 ) / times.length;
-        console.log( "times:", times );
-        console.log( `Average time for ${path}: ${avg}ms` );
+        // console.log( "times:", times );
+        // console.log( `Average time for ${path}: ${avg}ms` );
     })
 }
 
 testDir( "./src/__tests__/bench" );
-
-function shallowEqCEKValue( a: CEKValue, b: CEKValue ): boolean
-{
-    if( a instanceof CEKDelay && b instanceof CEKDelay )
-    return (
-        // CEKEnv.eq( a.env, b.env ) &&
-        eqUPLCTerm( a.delayedTerm, b.delayedTerm )
-    );
-    
-    if( a instanceof CEKLambda && b instanceof CEKLambda )
-    return (
-        // CEKEnv.eq( a.env, b.env ) &&
-        eqUPLCTerm( a.body, b.body )
-    );
-
-    if( a instanceof CEKConstr && b instanceof CEKConstr )
-    return a.tag === b.tag && (
-        Array.isArray( a.values ) &&
-        Array.isArray( b.values ) &&
-        a.values.length === b.values.length &&
-        a.values.every( (a_val,i) => shallowEqCEKValue( a_val, b.values[i] ) )
-    );
-
-    return eqCEKValue( a, b );
-}

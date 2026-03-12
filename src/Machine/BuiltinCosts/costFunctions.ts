@@ -351,9 +351,79 @@ export class ConstMinOrQuadratic2InXY extends BaseDoubleQuadratic
     };
 }
 
+/**
+ * Quadratic function of 1 variable: c0 + c1*x + c2*x²
+ * Used for unValueData cpu cost model.
+ */
+export class Quadratic1 implements CostFunc<1>
+{
+    readonly x0: bigint;
+    readonly x1: bigint;
+    readonly x2: bigint;
+    constructor( x0: bigint, x1: bigint, x2: bigint )
+    {
+        this.x0 = BigInt( x0 );
+        this.x1 = BigInt( x1 );
+        this.x2 = BigInt( x2 );
+    }
+    at( x: bigint ): bigint
+    {
+        return this.x0 + (this.x1 * x) + (this.x2 * x * x);
+    }
+}
+
+/**
+ * Two-variable interaction model: c00 + c10*x + c01*y + c11*x*y
+ * Used for unionValue cpu cost model.
+ */
+export class WithInteraction implements CostFunc<2>
+{
+    readonly c00: bigint;
+    readonly c10: bigint;
+    readonly c01: bigint;
+    readonly c11: bigint;
+    constructor( c00: bigint, c10: bigint, c01: bigint, c11: bigint )
+    {
+        this.c00 = BigInt( c00 );
+        this.c10 = BigInt( c10 );
+        this.c01 = BigInt( c01 );
+        this.c11 = BigInt( c11 );
+    }
+    at( x: bigint, y: bigint ): bigint
+    {
+        return this.c00 + (this.c10 * x) + (this.c01 * y) + (this.c11 * x * y);
+    }
+}
+
+/**
+ * ExpMod cost function (3-arg):
+ *   base = c00 + c11*y*z + c12*y*z²
+ *   if x > z: base + base/2  else: base
+ * Where x=intSize(base_arg), y=intSize(exp_arg), z=intSize(mod_arg).
+ */
+export class ExpModCost implements CostFunc<3>
+{
+    readonly c00: bigint;
+    readonly c11: bigint;
+    readonly c12: bigint;
+    constructor( c00: bigint, c11: bigint, c12: bigint )
+    {
+        this.c00 = BigInt( c00 );
+        this.c11 = BigInt( c11 );
+        this.c12 = BigInt( c12 );
+    }
+    at( x: bigint, y: bigint, z: bigint ): bigint
+    {
+        const yz = y * z;
+        const base = this.c00 + (this.c11 * yz) + (this.c12 * yz * z);
+        return x > z ? base + base / BigInt(2) : base;
+    }
+}
+
 export type OneArg
     = FixedCost
-    | Linear1;
+    | Linear1
+    | Quadratic1;
 
 export type TwoArgs
     = FixedCost
@@ -369,6 +439,7 @@ export type TwoArgs
     | XGtEqOrConst<CostFunc<2>>
     | Quadratic2InY
     | ConstMinOrQuadratic2InXY
+    | WithInteraction
 
 export type ThreeArgs
     = FixedCost
@@ -379,7 +450,8 @@ export type ThreeArgs
     | Quadratic3InZ
     | ConstYOrLinearZ
     | Linear3InYAndZ
-    | Linear3InMaxYZ;
+    | Linear3InMaxYZ
+    | ExpModCost;
 
 export type SixArgs
     = FixedCost;
