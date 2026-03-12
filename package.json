@@ -43,8 +43,8 @@
   },
   "peerDependencies": {
     "@harmoniclabs/cbor": "^2.0.1",
-    "@harmoniclabs/plutus-data": "^2.0.0",
-    "@harmoniclabs/uplc": "^2.0.4"
+    "@harmoniclabs/plutus-data": "^2.0.1",
+    "@harmoniclabs/uplc": "^2.0.5"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.18.6",
