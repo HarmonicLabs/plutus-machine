@@ -1,667 +1,622 @@
-import { UPLCTerm, ToUPLC, UPLCBuiltinTag, Builtin, getNRequiredForces, isUPLCTerm, ErrorUPLC, UPLCVar, UPLCConst, Lambda, Delay, Force, Application, Constr, Case } from "@harmoniclabs/uplc";
-import { BnCEK } from "../BnCEK/BnCEK";
-import { PartialBuiltin } from "../BnCEK/PartialBuiltin";
-import { CEKEnv } from "../CEKEnv";
-import { CEKFrames, Frame, isFrame } from "../CEKFrames/CEKFrames";
-import { ForceFrame } from "../CEKFrames/ForceFrame";
-import { LApp } from "../CEKFrames/LApp";
-import { RApp } from "../CEKFrames/RApp";
-import { CEKHeap } from "../CEKHeap";
-import { CEKSteps, ComputeStep, ReturnStep } from "../CEKSteps";
-import { CEKDelay } from "../CEKValue/CEKDelay";
-import { CEKLambda } from "../CEKValue/CEKLambda";
-import { BuiltinCostsOf, costModelV3ToBuiltinCosts } from "./BuiltinCosts/BuiltinCosts";
-import { ExBudget } from "./ExBudget";
-import { MachineCosts, costModelToMachineCosts } from "./MachineCosts";
-import { defineReadOnlyHiddenProperty, isObject } from "@harmoniclabs/obj-utils";
-import { AnyV1CostModel, AnyV2CostModel, AnyV3CostModel, costModelV1ToFakeV3, costModelV2ToFakeV3, defaultV3Costs, isCostModelsV1, isCostModelsV2, isCostModelsV3, toCostModelV3 } from "@harmoniclabs/cardano-costmodels-ts";
-import { ConstrFrame } from "../CEKFrames/ConstrFrame";
-import { CEKValue, isCEKValue } from "../CEKValue/CEKValue";
-import { CaseFrame } from "../CEKFrames/CaseFrame";
-import { CEKError } from "../CEKValue/CEKError";
-import { CEKConst } from "../CEKValue/CEKConst";
-import { CEKConstr } from "../CEKValue/CEKConstr";
+import { AnyV1CostModel, AnyV2CostModel, AnyV3CostModel, CostModelPlutusV3, costModelV1ToFakeV3, costModelV2ToFakeV3, defaultV3Costs, isCostModelsV1, isCostModelsV2, isCostModelsV3, toCostModelV3 } from "@harmoniclabs/cardano-costmodels-ts";
+import { ExBudget, IExBudget } from "./ExBudget";
+import { getNRequiredForces, isUPLCTerm, ToUPLC, UPLCBuiltinTag, UPLCTerm, UPLCTermObj } from "@harmoniclabs/uplc";
+import { CEKConst, CEKConstr, CEKDelay, CEKError, CEKLambda, CEKValue, CEKValueObj, ICEKConst, ICEKConstr, ICEKLambda, ICEKValue, TypedCEKConst } from "../CEKValue";
+import { MachineState, MachineStateCompute, MachineStateDone, MachineStateReturn } from "./MachineState";
+import { MachineStateTag } from "../_internal/MachineStateTag";
+import { MachineContextTag } from "../_internal/MachineContextTag";
+import { CEKEnv, extendEnv, lookupEnv } from "../CEKEnv";
+import { costModelToMachineCosts, MachineCosts } from "./MachineCosts";
+import { BuiltinCostsOf, costModelV3ToBuiltinCosts } from "./BuiltinCosts";
+import { UPLCTermTag } from "@harmoniclabs/uplc/dist/UPLCTerm/UPLCTermTag";
+import { FrameAwaitArg, FrameAwaitFunTerm, FrameAwaitFunValue, FrameCases, FrameConstr, MachineContext } from "./MachineContext";
+import { BnCEK, PartialBuiltin } from "../BnCEK";
+import { CEKValueTag } from "../_internal/CEKValueTag";
+import { constantToUntaggedConstr } from "./constantToUntaggedConstr";
 
-export type SrcMap = { [node_index: number]: string };
+const STEP_COUNT = (
+    Object.keys(UPLCTermTag)
+        .filter(k => typeof UPLCTermTag[k as keyof typeof UPLCTermTag] === "number")
+        .length + 1 // 1 extra for the total count of steps, used to trigger budget spending
+);
+const SLIPPAGE = 0x7f_ff_ff_ff; // max i32
 
-export class Machine
-{
-    constructor( costmodel: AnyV1CostModel | AnyV2CostModel | AnyV3CostModel )
-    {
-        const isV1 = isCostModelsV1( costmodel );
-        const isV2 = isCostModelsV2( costmodel );
-        const isV3 = isCostModelsV3( costmodel );
-        if(!( isV3 || isV2 || isV1 )) throw new Error("invalid machine costs");
-        
+const n0 = BigInt(0);
+const n1 = BigInt(1);
+const n2 = BigInt(2);
+
+export class Machine {
+
+    // private static readonly I64_MIN = BigInt("-9223372036854775808");
+
+    private initialBudget: ExBudget;
+    private budget: ExBudget;
+    private restricting: boolean;
+    private unbudgetedSteps: Uint32Array;
+    private builtinCosts: CostModelPlutusV3;
+
+    private spendBudget(cost: IExBudget): CEKError | undefined {
+        this.budget.sub(cost);
+        const { cpu, mem } = this.budget;
+        if (this.restricting && (cpu < n0 || mem < n0)) {
+            return new CEKError("out of budget");
+        }
+    }
+
+    private machineCosts: MachineCosts;
+
+    private builtinEvaluator: BnCEK;
+    private logs: string[] = [];
+
+    constructor(
+        costmodel: AnyV1CostModel | AnyV2CostModel | AnyV3CostModel = defaultV3Costs,
+        initialBudget?: ExBudget
+    ) {
+        const unlimitedBudget = ExBudget.unlimited();
+        const initial = initialBudget ?? unlimitedBudget;
+
+        this.initialBudget = initial.clone();
+        this.budget = new ExBudget({ cpu: initial.cpu, mem: initial.mem });
+
+        this.restricting = initial.cpu !== unlimitedBudget.cpu || initial.mem !== unlimitedBudget.mem;
+        this.unbudgetedSteps = new Uint32Array(STEP_COUNT + 1);
+
+        const isV1 = isCostModelsV1(costmodel);
+        const isV2 = isCostModelsV2(costmodel);
+        const isV3 = isCostModelsV3(costmodel);
+        if (!(isV3 || isV2 || isV1)) throw new Error("invalid machine costs");
+
         // ALWAYS CHECK LATEST VERSION FIRST
-        const costs = isV3 ? toCostModelV3( costmodel ) :
-            isV2 ? costModelV2ToFakeV3( costmodel ) :
-            isV1 ? costModelV1ToFakeV3( costmodel ) :
-            defaultV3Costs; // never; we throw before
+        this.builtinCosts = isV3 ? toCostModelV3(costmodel) :
+            isV2 ? costModelV2ToFakeV3(costmodel) :
+                isV1 ? costModelV1ToFakeV3(costmodel) :
+                    defaultV3Costs; // never; we throw before
 
-        defineReadOnlyHiddenProperty( this, "getBuiltinCostFuction", costModelV3ToBuiltinCosts( costs ) );
-        defineReadOnlyHiddenProperty( this, "machineCosts", costModelToMachineCosts( costs ) );
+
+        this.machineCosts = costModelToMachineCosts(this.builtinCosts);
+        this.logs = [];
+
+        this.builtinEvaluator = new BnCEK(
+            costModelV3ToBuiltinCosts(this.builtinCosts),
+            this.budget,
+            this.logs
+        );
+    }
+
+    resetBudget( newBudget: ExBudget = this.initialBudget ): void
+    {
+        this.budget = newBudget.clone();
+        this.builtinEvaluator.resetBudget( this.budget );
+    }
+
+    resetLogs(): void
+    {
+        this.logs = [];
+        this.builtinEvaluator.resetLogs( this.logs );
     }
 
     static evalSimple(
         _term: UPLCTerm | ToUPLC,
-        srcmap: SrcMap | undefined = undefined
-    ): CEKValue
+        // srcmap: SrcMap | undefined = undefined
+    ): CEKValueObj
     {
-        return new Machine( defaultV3Costs ).eval( _term, srcmap ).result;
+        _term = isUPLCTerm( _term ) ? _term : _term.toUPLC(0);
+        defaultMachine.resetBudget( defaultMachine.initialBudget );
+        defaultMachine.resetLogs();
+        return defaultMachine.eval( _term ).result;
     }
-
     static eval(
-        _term: UPLCTerm | ToUPLC,
-        srcmap: SrcMap | undefined = undefined
-    ): { result: CEKValue, budgetSpent: ExBudget, logs: string[] }
-    {
-        return new Machine( defaultV3Costs ).eval( _term, srcmap );
+        term: UPLCTerm | ToUPLC,
+        // srcmap: SrcMap | undefined = undefined
+    ): {
+        result: CEKValueObj;
+        budgetSpent: ExBudget;
+        logs: string[];
+    } {
+        term = isUPLCTerm( term ) ? term : term.toUPLC(0);
+        defaultMachine.resetBudget( defaultMachine.initialBudget );
+        defaultMachine.resetLogs();
+        return defaultMachine.eval( term );
     }
 
-    eval(
-        _term: UPLCTerm | ToUPLC,
-        srcmap: SrcMap | undefined = undefined
-    )
-    :{ 
-        result: CEKValue,
-        budgetSpent: ExBudget,
-        logs: string[]
+    get remainingBudget(): ExBudget {
+        this.spendUnbudgetedSteps();
+        return this.budget;
     }
-    {
-        const has_src = typeof srcmap === "object" && srcmap !== null; 
 
-        // new budget for each call
-        const budget = new ExBudget({ mem: 0, cpu: 0 });
-        const spend = budget.add.bind( budget );
-
-        const logs: string[] = [];
-
-        const machineCosts: MachineCosts = (this as any).machineCosts;
-        const getBuiltinCostFuction: <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag> = (this as any).getBuiltinCostFuction;
-
-        function spendBuiltin( bn: Builtin ): void
-        {
-            const nForces = BigInt( getNRequiredForces( bn.tag ) );
-
-            if( nForces === BigInt(0) )
-            {
-                budget.add( machineCosts.builtinNode );
-                return;
-            }
-
-            budget.add({
-                mem: machineCosts.builtinNode.mem + ( machineCosts.force.mem * nForces ),
-                cpu: machineCosts.builtinNode.cpu + ( machineCosts.force.cpu * nForces )
-            });
-        }
-
-        const bnCEK = new BnCEK( getBuiltinCostFuction, budget, logs );
-        
-        const frames = new CEKFrames();
-        const steps = new CEKSteps();
-        const heap = new CEKHeap();
-
-        let _poppedFrame: Frame = undefined as any;
-        function popTopFrame(): Frame
-        {
-            return _poppedFrame = frames.pop();
-        }
-
-        function defineCallStack( thing: any ): void
-        {
-            if( !isObject( thing ) ) return;
-            if(
-                typeof Object.isExtensible === "function" &&
-                !Object.isExtensible( thing )
-            ) return;
-            
-            if( !Array.isArray( thing.__call_stack__ ) ) return;
-
-            const hasPoppedFrame = isFrame( _poppedFrame );
-
-            // re insert top frame for call stack to include it.
-            if( hasPoppedFrame ) frames.push( _poppedFrame );
-
-            try {
-                Object.defineProperty(
-                    thing, "__call_stack__", {
-                        value: Object.freeze( frames.callStack() ),
-                        enumerable: true,
-                        writable: true,
-                        configurable: false
-                    }
-                );
-            } catch {} // object was not extensible, we don't care
-
-            // re-remove the top frame
-            if( hasPoppedFrame ) frames.pop();
-        }
-    
-        const uplc = isUPLCTerm( _term ) ? _term : _term.toUPLC(0);
-
-        if( has_src ) indexNodes( uplc );
-
-        spend( machineCosts.startup );
-        compute( uplc, new CEKEnv( heap ) );
-    
-        while( !frames.isEmpty || steps.topIsCompute )
-        {
-            const nextStep = steps.top();
-    
-            if( nextStep === undefined )
-            {
-                throw new Error("step stack was empty; don't know how to proceed");
-            }
-            if( nextStep instanceof ComputeStep )
-            {
-                void steps.pop();
-                compute( nextStep.term, nextStep.env );
-            }
-            else if( nextStep instanceof ReturnStep )
-            {
-                if( nextStep.value instanceof CEKError )
-                {
-                    steps._clear();
-                    steps.push( nextStep ); // save error
-                    break; // exit loop
-                }
-                void steps.pop();
-                returnCEK( nextStep.value );
-            }
-            else throw new Error( "unknown step" );
-        }
-    
-        function compute( term: UPLCTerm, env: CEKEnv ): void
-        {
-            if(
-                term instanceof ErrorUPLC
-                || term instanceof CEKError
-            )
-            {
-                if( term instanceof ErrorUPLC ) defineCallStack( term );
-                steps.push(
-                    new ReturnStep(
-                        term instanceof CEKError ? term :
-                        CEKError.fromUplc( term )
-                    )
-                );
-                return;
-            }
-    
-            if( term instanceof UPLCVar )
-            {
-                const varValue = env.get( term.deBruijn );
-                if( varValue === undefined )
-                {
-                    steps.push(
-                        new ReturnStep(
-                            new CEKError("unbound uplc variable")
-                        )
-                    );
-                    return;
-                }
-                
-                budget.add( machineCosts.var );
-                steps.push( new ReturnStep( varValue ) );
-                return;
-            }
-    
-            if(
-                term instanceof UPLCConst
-                || term instanceof CEKConst
-            )
-            {
-                budget.add( machineCosts.constant );
-                steps.push( new ReturnStep( CEKConst.fromUplc( term ) ) );
-                return;
-            }
-    
-            if(
-                term instanceof Lambda
-                || term instanceof CEKLambda
-            ) {
-                budget.add( machineCosts.lam );
-                steps.push(
-                    new ReturnStep(
-                        term instanceof CEKLambda ? term :
-                        new CEKLambda( term.body, env.clone() )
-                    )
-                );
-    
-                return;
-            }
-    
-            if(
-                term instanceof Delay
-                || term instanceof CEKDelay
-            )
-            {
-                budget.add( machineCosts.delay );
-                steps.push(
-                    new ReturnStep(
-                        term instanceof CEKDelay ? term :
-                        new CEKDelay(
-                            term.delayedTerm,
-                            env.clone()
-                        )
-                    )
-                );
-                return;
-            }
-    
-            if( term instanceof Force )
-            {
-                budget.add( machineCosts.force );
-                frames.push( new ForceFrame() );
-                steps.push( new ComputeStep( term.termToForce, env ) );
-                return;
-            }
-    
-            // 𝑠; 𝜌 ⊳ [𝑀 𝑁]↦ [_ (𝑁, 𝜌)]⋅𝑠; 𝜌 ⊳ 𝑀
-            if( term instanceof Application )
-            {
-                budget.add( machineCosts.apply );
-                const rapp = new RApp( term.argTerm, env.clone() );
-                // [_ (𝑁, 𝜌)]⋅𝑠;
-                frames.push( rapp );
-                // 𝜌 ⊳ 𝑀
-                steps.push( new ComputeStep( term.funcTerm, env ) );
-
-                if( has_src && typeof( (term as any).__node_index__ ) === "number" )
-                    rapp.src = srcmap[(term as any).__node_index__];
-                return;
-            }
-
-            // 𝑠; 𝜌 ⊳ (constr 𝑖 𝑀⋅𝑀[])↦ (constr 𝑖 _ (𝑀[], 𝜌))⋅𝑠; 𝜌 ⊳ 𝑀
-            // 𝑠; 𝜌 ⊳ (constr 𝑖 [])↦ 𝑠 ⊲ 〈constr 𝑖 []〉
-            if( term instanceof Constr )
-            {
-                budget.add( machineCosts.constr );
-                // 𝑠; 𝜌 ⊳ (constr 𝑖 𝑀⋅𝑀[])↦ (constr 𝑖 _ (𝑀[], 𝜌))⋅𝑠; 𝜌 ⊳ 𝑀
-                if( term.terms.length > 0 )
-                {
-                    // (constr 𝑖 _ (𝑀[], 𝜌))⋅𝑠;
-                    frames.push(new ConstrFrame(
-                        term.index,
-                        term.terms.slice( 1 ),
-                        [],
-                        env
-                    ));
-                    // 𝜌 ⊳ 𝑀
-                    steps.push(new ComputeStep(term.terms[0], env))
-                }
-                // 𝑠; 𝜌 ⊳ (constr 𝑖 [])↦ 𝑠 ⊲ 〈constr 𝑖 []〉
-                else
-                {
-                    steps.push(
-                        new ReturnStep(
-                            new CEKConstr(
-                                term.index,
-                                []
-                            )
-                        )
-                    );
-                }
-                return;
-            }
-
-            // 𝑠; 𝜌 ⊳ (case 𝑁 𝑀[])↦ (case _ (𝑀[], 𝜌))⋅𝑠; 𝜌 ⊳ 𝑁
-            if( term instanceof Case )
-            {
-                budget.add( machineCosts.case );
-                // (case _ (𝑀[], 𝜌))⋅𝑠;
-                frames.push(
-                    new CaseFrame(
-                        term.continuations,
-                        env.clone()
-                    )
-                );
-                // 𝜌 ⊳ 𝑁
-                steps.push(
-                    new ComputeStep(
-                        term.constrTerm,
-                        env
-                    )
-                );
-                return;
-            }
-    
-            // 𝑠; 𝜌 ⊳ (builtin 𝑏)↦ 𝑠 ⊲ 〈builtin 𝑏 [] 𝛼(𝑏)〉
-            if(
-                term instanceof Builtin ||
-                (term as PartialBuiltin) instanceof PartialBuiltin
-            )
-            {
-                if( term instanceof Builtin ) spendBuiltin( term );
-                // 𝑠 ⊲ 〈builtin 𝑏 [] 𝛼(𝑏)〉
-                steps.push(
-                    new ReturnStep(
-                        term instanceof PartialBuiltin? term : new PartialBuiltin( term.tag )
-                    )
-                );
-                return;
-            }
-
-            // console.error( term );
-            const err = new CEKError("ComputeStep/no match", { term } );
-            defineCallStack( err );
-            steps.push( new ReturnStep( err ) )
-            return;
-        }
-    
-        function returnCEK( v: CEKValue ): void
-        {
-            if( v instanceof ErrorUPLC )
-            {
-                defineCallStack( v );
-                steps._clear();
-                // terminates while loop
-                steps.push( new ReturnStep( v ) );
-                return;
-            }
-    
-            if( v instanceof PartialBuiltin )
-            {
-                if( v.nMissingArgs === 0 )
-                {
-                    console.log( v );
-                    const evalResult = bnCEK.eval( v );
-                    if( evalResult instanceof ErrorUPLC )
-                    {
-                        defineCallStack( evalResult );
-                    }
-                    steps.push( new ReturnStep( evalResult ) );
-                    return;
-                }
-                if( frames.isEmpty )
-                {
-                    const err = new ErrorUPLC("ReturnStep/PartialBuiltin/empty frames");
-                    defineCallStack( err );
-                    steps.push( new ReturnStep( err ) );
-                    return;
-                }
-            }
-
-            function applyBuiltin( bn: Builtin | PartialBuiltin, value: CEKValue ): void
-            {
-                if( bn instanceof Builtin )
-                {
-                    spendBuiltin( bn );
-                    bn = new PartialBuiltin( bn.tag );
-                }
-
-                bn.apply( value );
-
-                if( bn.nMissingArgs === 0 ) {
-                    const evalResult = bnCEK.eval( bn );
-                    if( evalResult instanceof CEKError ) defineCallStack( evalResult );
-                    steps.push( new ReturnStep( evalResult ) );
-                    return;
-                }
-
-                // choose what to do based on the frames
-                steps.push( new ReturnStep( bn ) );
-                return;
-            }
-
-            //[] ⊲ 𝑉 ↦ ◻𝑉
-            if( frames.isEmpty )
-            {
-                // ends while loop
-                steps.push( new ReturnStep( v ) );
-                return;    
-            }
-    
-            const topFrame = popTopFrame();
-            
-            if( topFrame instanceof RApp )
-            {
-                if( isCEKValue( topFrame.arg ) )
-                {
-                    // right application to value
-                    // and value is lambda
-                    // has the same result
-                    // of left application to lambda
-                    // [_ 𝑉 ]⋅𝑠 ⊲ 〈lam 𝑥 𝑀 𝜌〉↦ 𝑠; 𝜌[𝑥 ↦ 𝑉 ] ⊳ 𝑀
-                    if( v instanceof CEKLambda )
-                    {
-                        const env = v.env.clone();
-                        // 𝜌[𝑥 ↦ 𝑉 ]
-                        env.push( topFrame.arg );
-                        // ⊳ 𝑀
-                        steps.push(
-                            new ComputeStep(
-                                v.body,
-                                env
-                            )
-                        );
-                        return;
-                    }
-                    // [_ 𝑉 ]⋅𝑠 ⊲ 〈builtin 𝑏 𝑉 (𝜄⋅𝜂)〉 ↦ 𝑠 ⊲ 〈builtin 𝑏 (𝑉 ⋅𝑉 ) 𝜂〉 if 𝜄 ∈ U# ∪ V∗
-                    else if(
-                        v instanceof PartialBuiltin ||
-                        v instanceof Builtin
-                    )
-                    {
-                        applyBuiltin( v.clone(), topFrame.arg );
-                        return;
-                    }
-                    return;
-                }
-                // [_ (𝑀, 𝜌)]⋅𝑠 ⊲ 𝑉 ↦ [𝑉 _]⋅𝑠; 𝜌 ⊳ 𝑀
-                else
-                {
-                    // [𝑉 _]⋅𝑠;
-                    frames.push( new LApp( v, topFrame.src ) );
-                    // 𝜌 ⊳ 𝑀
-                    steps.push( new ComputeStep( topFrame.arg, topFrame.env ) );
-                    return;
-                }
-                return;
-            }
-    
-            if( topFrame instanceof LApp )
-            {
-                // [〈builtin 𝑏 𝑉 (𝜄⋅𝜂)〉 _]⋅𝑠 ⊲ 𝑉 ↦ 𝑠 ⊲ 〈builtin 𝑏 (𝑉 ⋅𝑉 ) 𝜂〉 if 𝜄 ∈ U# ∪ V∗
-                // [〈builtin 𝑏 𝑉 [𝜄]〉 _]⋅𝑠 ⊲ 𝑉 ↦ 𝖤𝗏𝖺𝗅 𝖢𝖤𝖪 (𝑠, 𝑏, 𝑉 ⋅𝑉 ) if 𝜄 ∈ U# ∪ V∗
-                if(
-                    topFrame.func instanceof Builtin || 
-                    topFrame.func instanceof PartialBuiltin 
-                )
-                {
-                    applyBuiltin( topFrame.func.clone(), v );
-                    return;
-                }
-
-                if(
-                    topFrame.func instanceof Lambda     ||
-                    topFrame.func instanceof CEKLambda
-                )
-                {
-                    const _env = topFrame.func instanceof CEKLambda ?
-                        (topFrame.func as CEKLambda).env :
-                        new CEKEnv( heap );
-    
-                    _env.push( v );
-    
-                    steps.push(
-                        new ComputeStep(
-                            (topFrame.func as CEKLambda | Lambda).body,
-                            _env
-                        )
-                    );
-                    return;
-                }
-                return;
-            }
-
-            // builtin forces are added only at compile time
-            // hence not present in plu-ts UPLCTerm
-            if( topFrame instanceof ForceFrame )
-            {
-                if(
-                    v instanceof Delay      ||
-                    v instanceof CEKDelay
-                )
-                {
-                    steps.push(
-                        new ComputeStep(
-                            (v as Delay | CEKDelay).delayedTerm,
-                            v instanceof CEKDelay ? (v as CEKDelay).env : new CEKEnv( heap )
-                        )
-                    );
-                    return;
-                }
-    
-                // not sure about the env...
-                steps.push(
-                    new ComputeStep(
-                        v,
-                        new CEKEnv( heap )
-                    )
-                );
-                return;
-            }
-
-            if( topFrame instanceof ConstrFrame )
-            {
-                // (constr 𝑖 𝑉[] _ ([], 𝜌))⋅𝑠 ⊲ 𝑉 ↦ 𝑠 ⊲ 〈constr 𝑖 𝑉 ⋅𝑉[] 〉
-                if( topFrame.terms.length === 0 )
-                {
-                    // 𝑠 ⊲ 〈constr 𝑖 𝑉 ⋅𝑉[] 〉
-                    steps.push(
-                        new ReturnStep(
-                            new CEKConstr(
-                                topFrame.tag,
-                                // 𝑉 ⋅𝑉[]
-                                [ v ].concat( topFrame.values )
-                            )
-                        )
-                    );
-                    return;
-                }
-                // (constr 𝑖 𝑉[] _ (𝑀⋅𝑀[], 𝜌))⋅𝑠 ⊲ 𝑉 ↦ (constr 𝑖 𝑉 ⋅𝑉[] _ (𝑀[], 𝜌))⋅𝑠; 𝜌 ⊳ 𝑀
-                else
-                {
-                    // (constr 𝑖 𝑉 ⋅𝑉[] _ (𝑀[], 𝜌))⋅𝑠
-                    frames.push(
-                        new ConstrFrame(
-                            // 𝑖
-                            topFrame.tag,
-                            // 𝑀[]
-                            topFrame.terms.slice( 1 ),
-                            // 𝑉 ⋅𝑉[]
-                            [ v ].concat( topFrame.values ),
-                            // 𝜌
-                            topFrame.env.clone()
-                        )
-                    );
-                    // 𝜌 ⊳ 𝑀
-                    steps.push(
-                        new ComputeStep(
-                            topFrame.terms[0],
-                            topFrame.env
-                        )
-                    )
-                    return;
-                }
-                return;
-            }
-
-            // (case _ (𝑀0 … 𝑀𝑛 , 𝜌))⋅𝑠 ⊲ 〈constr 𝑖 𝑉0 … 𝑉𝑚 〉 ↦ [_ 𝑉𝑚 ]⋅⋯⋅[_ 𝑉0 ]⋅𝑠; 𝜌 ⊳ 𝑀𝑖 if 0 ≤ 𝑖 ≤ 𝑛
-            if( topFrame instanceof CaseFrame )
-            {
-                if(!( v instanceof CEKConstr ))
-                {
-                    steps.push(
-                        new ReturnStep(
-                            new CEKError(
-                                "case frame did not receive constr value",
-                                { value: v }
-                            )
-                        )
-                    );
-                    return;
-                }
-                //[_ 𝑉𝑚 ]⋅⋯⋅[_ 𝑉0 ]⋅𝑠;
-                frames.push(
-                    ...v.values
-                    .map( v => new RApp( v, topFrame.env.clone() ) )
-                    // .reverse()
-                );
-                const n = topFrame.terms.length;
-                const i = Number( v.tag );
-                // if 0 ≤ 𝑖 ≤ 𝑛
-                if(!( 0 <= i && i <= n ))
-                {
-                    steps._clear();
-                    steps.push(
-                        new ReturnStep(
-                            new CEKError(
-                                "case frame received constr with tag " + i +
-                                "; but only " + n + " term continuations"
-                            )
-                        )
-                    );
-                    return;
-                }
-                // 𝜌 ⊳ 𝑀𝑖
-                steps.push(
-                    new ComputeStep(
-                        topFrame.terms[i],
-                        topFrame.env
-                    )
-                );
-                return;
-            }
-    
-            console.error( topFrame );
-            const err = new CEKError("ReturnStep/LApp", { topFrame: topFrame } );
-            defineCallStack( err );
-            steps.push( new ReturnStep( err ) )
-            return;
-        }
-    
-        // Debug.timeEnd(timeTag);
-
-        return {
-            result: (steps.pop() as ReturnStep)?.value ?? new CEKError("steps.pop() was not a ReturnStep"),
-            budgetSpent: budget,
-            logs: logs
+    eval( term: UPLCTermObj ): {
+        result: CEKValueObj;
+        budgetSpent: ExBudget;
+        logs: string[];
+    } {
+        const result = this.run( term );
+        const budgetSpent = ExBudget.sub( this.initialBudget, this.budget );
+        return { result, budgetSpent, logs: this.logs };
+    }
+    run(term: UPLCTermObj): CEKValueObj {
+        this.spendBudget({ cpu: 100, mem: 100 }); // startup cost
+        let state: MachineState = {
+            tag: MachineStateTag.Compute,
+            ctx: {
+                tag: MachineContextTag.NoFrame,
+                value: undefined,
+                env: undefined,
+                ctx: undefined,
+                index: undefined,
+                branches: undefined,
+                resolved: undefined,
+            },
+            env: undefined,
+            term,
         };
-    }
 
-    
-}
-
-// export interface EvalDebugOptions {
-//     onComputeStep: () => void
-//     onReturnStep: () => void
-// }
-
-function indexNodes( uplc: UPLCTerm, idx: number = 0 ): number
-{
-    Object.defineProperty(
-        uplc, "__node_index__", {
-            value: Number( idx ),
-            writable: false,
-            enumerable: true,
-            configurable: false
+        while (true) {
+            switch (state.tag) {
+                case MachineStateTag.Compute: {
+                    state = this.compute(state.ctx, state.env, state.term);
+                    break;
+                }
+                case MachineStateTag.Return: {
+                    state = this.returnCompute(state.ctx, state.term);
+                    break;
+                }
+                case MachineStateTag.Done: {
+                    this.spendUnbudgetedSteps();
+                    return state.term;
+                }
+            }
         }
-    );
-
-    if( uplc instanceof Application )
-    {
-        const max_fn = indexNodes( uplc.funcTerm, idx + 1 );
-        return indexNodes( uplc.argTerm, max_fn + 1 );
     }
 
-    if( uplc instanceof Force ) return indexNodes( uplc.termToForce, idx );
-    if( uplc instanceof Delay ) return indexNodes( uplc.delayedTerm, idx );
-    if( uplc instanceof Lambda ) return indexNodes( uplc.body, idx );
+    private stepAndMaybeSpend(step: UPLCTermTag): void {
+        this.unbudgetedSteps[step]! += 1;
+        this.unbudgetedSteps[STEP_COUNT]! += 1;
+        if (this.unbudgetedSteps[STEP_COUNT]! >= SLIPPAGE) {
+            this.spendUnbudgetedSteps();
+        }
+    }
 
-    // UPLCVar | UPLCConst | ErrorUPLC | Builtin
-    // have no childs
-    return idx;
+    private spendUnbudgetedSteps(): void {
+        let cpu = n0;
+        let mem = n0;
+        const machineCosts = this.machineCosts;
+        for (let i = 0; i < STEP_COUNT; i++) {
+            const count = this.unbudgetedSteps[i]!;
+            if (count === 0) continue;
+
+            const cost = machineCosts[i as UPLCTermTag];
+            cpu += BigInt(count) * cost.cpu;
+            mem += BigInt(count) * cost.mem;
+
+            this.unbudgetedSteps[i] = 0;
+        }
+
+        this.unbudgetedSteps[STEP_COUNT] = 0;
+        this.spendBudget({ cpu, mem });
+    }
+
+    private compute(ctx: MachineContext, env: CEKEnv, term: UPLCTermObj): MachineState {
+        this.stepAndMaybeSpend(term.tag);
+        switch (term.tag) {
+            case UPLCTermTag.Var: {
+                const val = lookupEnv(env, term.deBruijn);
+                if (val === undefined) {
+                    return {
+                        tag: MachineStateTag.Done,
+                        ctx: undefined,
+                        env: undefined,
+                        term: new CEKError("unbound uplc variable")
+                    } as MachineStateDone;
+                }
+                return {
+                    tag: MachineStateTag.Return,
+                    ctx: ctx,
+                    env: undefined,
+                    term: val
+                } as MachineStateReturn;
+                break;
+            }
+
+            case UPLCTermTag.Const: {
+                return {
+                    tag: MachineStateTag.Return,
+                    ctx: ctx,
+                    env: undefined,
+                    term: CEKConst.fromUplc(term)
+                } as MachineStateReturn;
+                break;
+            }
+
+            case UPLCTermTag.Lambda: {
+                return {
+                    tag: MachineStateTag.Return,
+                    ctx: ctx,
+                    env: undefined,
+                    term: new CEKLambda(term.body, env)
+                } as MachineStateReturn;
+                break;
+            }
+
+            case UPLCTermTag.Delay: {
+                return {
+                    tag: MachineStateTag.Return,
+                    ctx: ctx,
+                    env: undefined,
+                    term: new CEKDelay(term.delayedTerm, env)
+                } as MachineStateReturn
+            }
+
+            case UPLCTermTag.Force: {
+                return {
+                    tag: MachineStateTag.Compute,
+                    ctx: {
+                        tag: MachineContextTag.FrameForce,
+                        // V8 object shape optimization
+                        value: undefined,
+                        env: undefined,
+                        ctx,
+                        // V8 object shape optimization
+                        index: undefined,
+                        branches: undefined,
+                        resolved: undefined,
+                    },
+                    env,
+                    term: term.forced
+                } as MachineStateCompute
+            }
+
+            case UPLCTermTag.Application: {
+                return {
+                    tag: MachineStateTag.Compute,
+                    ctx: {
+                        tag: MachineContextTag.FrameAwaitFunTerm,
+                        // V8 object shape optimization
+                        value: term.arg,
+                        env,
+                        ctx,
+                        // V8 object shape optimization
+                        index: undefined,
+                        branches: undefined,
+                        resolved: undefined,
+                    } as FrameAwaitFunTerm,
+                    env, // env: env.child(),
+                    term: term.func
+                } as MachineStateCompute;
+            }
+
+            case UPLCTermTag.Builtin: {
+                return {
+                    tag: MachineStateTag.Return,
+                    ctx: ctx,
+                    env: undefined,
+                    term: new PartialBuiltin(
+                        term.builtinTag,
+                        [] // args
+                    )
+                } as MachineStateReturn;
+            }
+
+            case UPLCTermTag.Constr: {
+                if (term.terms.length === 0) {
+                    return {
+                        tag: MachineStateTag.Return,
+                        ctx: ctx,
+                        env: undefined,
+                        term: new CEKConstr(
+                            term.index,
+                            []
+                        )
+                    } as MachineStateReturn;
+                }
+                return {
+                    tag: MachineStateTag.Compute,
+                    ctx: {
+                        tag: MachineContextTag.FrameConstr,
+                        // V8 object shape optimization
+                        value: undefined,
+                        env,
+                        ctx,
+                        index: term.index,
+                        /** fields */
+                        branches: term.terms.slice(1),
+                        resolved: [], // CEKValueObj[];
+                    } as FrameConstr,
+                    env,
+                    term: term.terms[0]
+                } as MachineStateCompute;
+            }
+
+            case UPLCTermTag.Case: {
+                return {
+                    tag: MachineStateTag.Compute,
+                    ctx: {
+                        tag: MachineContextTag.FrameCases,
+                        // V8 object shape optimization
+                        value: undefined,
+                        env,
+                        ctx,
+                        index: undefined,
+                        branches: term.continuations,
+                        resolved: undefined,
+                    } as FrameCases,
+                    env,
+                    term: term.constrTerm
+                } as MachineStateCompute;
+            }
+
+            case UPLCTermTag.Error: {
+                return {
+                    tag: MachineStateTag.Done,
+                    ctx: undefined,
+                    env: undefined,
+                    term: CEKError.fromUplc(term)
+                } as MachineStateDone;
+            }
+        }
+    }
+
+    private returnCompute(
+        ctx: MachineContext,
+        value: CEKValueObj
+    ): MachineState {
+        switch (ctx.tag) {
+            case MachineContextTag.NoFrame: {
+                return {
+                    tag: MachineStateTag.Done,
+                    ctx: undefined,
+                    env: undefined,
+                    term: value
+                } as MachineStateDone;
+            }
+
+            case MachineContextTag.FrameAwaitFunTerm: {
+                return {
+                    tag: MachineStateTag.Compute,
+                    ctx: {
+                        tag: MachineContextTag.FrameAwaitArg,
+                        // V8 object shape optimization
+                        value,
+                        env: undefined,
+                        ctx: ctx.ctx,
+                        // V8 object shape optimization
+                        index: undefined,
+                        branches: undefined,
+                        resolved: undefined,
+                    } as FrameAwaitArg,
+                    env: ctx.env,
+                    term: ctx.value
+                } as MachineStateCompute;
+            }
+
+            case MachineContextTag.FrameAwaitArg: return this.applyEvaluate(ctx.ctx, ctx.value, value);
+            case MachineContextTag.FrameAwaitFunValue: return this.applyEvaluate(ctx.ctx, value, ctx.value);
+            case MachineContextTag.FrameForce: return this.forceEvaluate(ctx.ctx, value);
+
+            case MachineContextTag.FrameConstr: {
+                const resolved = ctx.resolved.slice();
+                resolved.push(value);
+                if (ctx.branches.length === 0) {
+                    return {
+                        tag: MachineStateTag.Return,
+                        ctx: ctx.ctx,
+                        env: undefined,
+                        term: new CEKConstr(
+                            ctx.index,
+                            resolved
+                        )
+                    }
+                }
+                const next = ctx.branches[0]!;
+                const rest = ctx.branches.slice(1);
+                return {
+                    tag: MachineStateTag.Compute,
+                    ctx: {
+                        tag: MachineContextTag.FrameConstr,
+                        // V8 object shape optimization
+                        value: undefined,
+                        env: ctx.env,
+                        ctx: ctx.ctx,
+                        index: ctx.index,
+                        branches: rest,
+                        resolved,
+                    },
+                    env: ctx.env,
+                    term: next
+                } as MachineStateCompute;
+                break;
+            }
+
+            case MachineContextTag.FrameCases: {
+                let index: bigint;
+                let fileds: CEKValueObj[];
+                switch (value.tag) {
+                    case CEKValueTag.Constr: {
+                        index = (value as ICEKConstr).index;
+                        fileds = (value as ICEKConstr).values;
+                        break;
+                    }
+                    case CEKValueTag.Const: {
+                        const result = constantToUntaggedConstr(value as TypedCEKConst, ctx.branches.length);
+                        if (result.tag === CEKValueTag.Error) {
+                            return {
+                                tag: MachineStateTag.Done,
+                                ctx: undefined,
+                                env: undefined,
+                                term: result as CEKError
+                            } as MachineStateDone;
+                        }
+                        index = (result as ICEKConstr).index;
+                        fileds = (result as ICEKConstr).values;
+                        break;
+                    }
+                    default: {
+                        return {
+                            tag: MachineStateTag.Done,
+                            ctx: undefined,
+                            env: undefined,
+                            term: new CEKError(
+                                `case: expected constr or constant value, got ${value.tag}`,
+                            )
+                        } as MachineStateDone;
+                    }
+                }
+                const indexNum = Number( index );
+                if (indexNum < 0 || indexNum >= ctx.branches.length) {
+                    return {
+                        tag: MachineStateTag.Done,
+                        ctx: undefined,
+                        env: undefined,
+                        term: new CEKError(
+                            `case: constructor tag ${index} out of range (${ctx.branches.length} branches)`,
+                        )
+                    } as MachineStateDone;
+                }
+
+                return {
+                    tag: MachineStateTag.Compute,
+                    ctx: transferArgStack(fileds, ctx.ctx),
+                    env: ctx.env,
+                    term: ctx.branches[indexNum]!
+                };
+            }
+
+            default: return {
+                tag: MachineStateTag.Done,
+                ctx: undefined,
+                env: undefined,
+                term: new CEKError( `Unknown context in returnCompute: ${(ctx as any).tag}` )
+            };
+        }
+    }
+
+    private applyEvaluate( ctx: MachineContext, fun: CEKValueObj, arg: CEKValueObj ): MachineState {
+        switch( fun.tag ) {
+            case CEKValueTag.Lambda: {
+                
+                return {
+                    tag: MachineStateTag.Compute,
+                    ctx,
+                    env: extendEnv(fun.env, arg),
+                    term: fun.body
+                } as MachineStateCompute;
+            }
+
+            case CEKValueTag.PartialBuiltin: {
+                const expectedForces = getNRequiredForces( fun.builtinTag );
+                const expectedArity = fun.nRequiredArgs;
+                if( fun.forces < expectedForces ) {
+                    return {
+                        tag: MachineStateTag.Done,
+                        ctx: undefined,
+                        env: undefined,
+                        term: new CEKError(
+                            `builtin ${UPLCBuiltinTag[fun.builtinTag]} expected at least ${expectedForces} forces, got ${fun.forces}`
+                        )
+                    } as MachineStateDone
+                }
+
+                const newArgs = fun.args.concat( arg );
+                if( newArgs.length === expectedArity ) {
+                    const result = this.callBuiltin( fun.builtinTag, newArgs );
+                    return {
+                        tag: MachineStateTag.Return,
+                        ctx,
+                        env: undefined,
+                        term: result
+                    } as MachineStateReturn
+                }
+
+                return {
+                    tag: MachineStateTag.Return,
+                    ctx,
+                    env: undefined,
+                    term: new PartialBuiltin(
+                        fun.builtinTag,
+                        newArgs,
+                        fun.forces
+                    )
+                } as MachineStateReturn;
+            }
+
+            default: return {
+                tag: MachineStateTag.Done,
+                ctx: undefined,
+                env: undefined,
+                term: new CEKError(
+                    `attempting to apply non-function value of type ${fun.tag}`
+                )
+            } as MachineStateDone;
+        }
+    }
+
+    private forceEvaluate( ctx: MachineContext, value: CEKValueObj ): MachineState {
+        switch( value.tag ) {
+            case CEKValueTag.Delay: {
+                return {
+                    tag: MachineStateTag.Compute,
+                    ctx,
+                    env: value.env,
+                    term: value.delayedTerm
+                } as MachineStateCompute;
+            }
+
+            case CEKValueTag.PartialBuiltin: {
+                const expectedForces = getNRequiredForces( value.builtinTag );
+                if( value.forces >= expectedForces ) {
+                    // const result = this.callBuiltin( value.builtinTag, value.args );
+                    return {
+                        tag: MachineStateTag.Done,
+                        ctx: undefined,
+                        env: undefined,
+                        term: new CEKError(
+                            `cannot force builtin ${UPLCBuiltinTag[value.builtinTag]} that has already received all its arguments`
+                        )
+                    } as MachineStateDone;
+                }
+
+                const newForces = value.forces + 1;
+                return {
+                    tag: MachineStateTag.Return,
+                    ctx,
+                    env: undefined,
+                    term: new PartialBuiltin(
+                        value.builtinTag,
+                        value.args,
+                        newForces
+                    )
+                } as MachineStateReturn;
+            }
+
+            default: return {
+                tag: MachineStateTag.Done,
+                ctx: undefined,
+                env: undefined,
+                term: new CEKError(
+                    `NonPolymorphicInstantiation: cannot force ${value.tag}`
+                )
+            } as MachineStateDone;
+        }
+    }
+
+    private callBuiltin<Tag extends UPLCBuiltinTag>( tag: Tag, args: CEKValueObj[] ): CEKValueObj {
+        return this.builtinEvaluator.eval( tag, args as any );
+    }
 }
+
+export function transferArgStack(fields: CEKValueObj[], ctx: MachineContext): MachineContext {
+    let c = ctx;
+    for (let i = fields.length - 1; i >= 0; i--) {
+        c = {
+            tag: MachineContextTag.FrameAwaitFunValue, // "frame_await_fun_value",
+            value: fields[i],
+            env: undefined,
+            ctx: c,
+            index: undefined,
+            branches: undefined,
+            resolved: undefined,
+        } as FrameAwaitFunValue;
+    }
+    return c;
+}
+
+const defaultMachine = new Machine( defaultV3Costs );
