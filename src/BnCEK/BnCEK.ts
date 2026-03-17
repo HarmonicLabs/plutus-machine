@@ -1021,7 +1021,7 @@ export class BnCEK
             cpu: f.cpu.at( sa, sb )
         });
 
-        return CEKConst.bool( _a.toString() === _b.toString() );
+        return CEKConst.bool( u8ArrayEq( _a, _b ) );
     }
     lessThanByteString( a: CEKValue, b: CEKValue ): ConstOrErr
     {
@@ -1088,7 +1088,7 @@ export class BnCEK
             cpu: f.cpu.at( sa, sb )
         });
 
-        if( _a.toString() === _b.toString() ) return CEKConst.bool( true );
+        if( u8ArrayEq( _a, _b ) ) return CEKConst.bool( true );
 
         // lessThanBytestring but with new environment for costs;
         return (new BnCEK(this.getBuiltinCostFunc, ExBudget.zero(), [])).lessThanByteString( a, b );

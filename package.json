@@ -1,6 +1,6 @@
 {
   "name": "@harmoniclabs/plutus-machine",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -44,7 +44,7 @@
   "peerDependencies": {
     "@harmoniclabs/cbor": "^2.0.1",
     "@harmoniclabs/plutus-data": "^2.0.1",
-    "@harmoniclabs/uplc": "^2.0.5"
+    "@harmoniclabs/uplc": "^2.0.6"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.18.6",

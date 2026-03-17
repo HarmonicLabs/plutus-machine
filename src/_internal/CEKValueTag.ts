@@ -9,3 +9,15 @@ export const enum CEKValueTag {
     PartialBuiltin = 4,
     Error = 5
 }
+
+export function cekValueTagToString(tag: CEKValueTag): string {
+    switch (tag) {
+        case CEKValueTag.Const: return "Const";
+        case CEKValueTag.Delay: return "Delay";
+        case CEKValueTag.Lambda: return "Lambda";
+        case CEKValueTag.Constr: return "Constr";
+        case CEKValueTag.PartialBuiltin: return "PartialBuiltin";
+        case CEKValueTag.Error: return "Error";
+        default: return "Unknown";
+    }
+}

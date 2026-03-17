@@ -11,7 +11,7 @@ import { costModelV4ToBuiltinCosts } from "./BuiltinCosts";
 import { UPLCTermTag } from "@harmoniclabs/uplc/dist/UPLCTerm/UPLCTermTag";
 import { FrameAwaitArg, FrameAwaitFunTerm, FrameAwaitFunValue, FrameCases, FrameConstr, MachineContext } from "./MachineContext";
 import { BnCEK, PartialBuiltin } from "../BnCEK";
-import { CEKValueTag } from "../_internal/CEKValueTag";
+import { CEKValueTag, cekValueTagToString } from "../_internal/CEKValueTag";
 import { constantToUntaggedConstr } from "./constantToUntaggedConstr";
 
 const STEP_COUNT = (
@@ -543,7 +543,8 @@ export class Machine {
                 ctx: undefined,
                 env: undefined,
                 term: new CEKError(
-                    `attempting to apply non-function value of type ${fun.tag}`
+                    `attempting to apply non-function value of type ${cekValueTagToString(fun.tag)}`,
+                    { fun, arg }
                 )
             } as MachineStateDone;
         }
@@ -592,7 +593,7 @@ export class Machine {
                 ctx: undefined,
                 env: undefined,
                 term: new CEKError(
-                    `NonPolymorphicInstantiation: cannot force ${value.tag}`
+                    `NonPolymorphicInstantiation: cannot force ${cekValueTagToString(value.tag)}`
                 )
             } as MachineStateDone;
         }
