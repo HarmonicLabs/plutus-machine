@@ -38,7 +38,7 @@ describe("amtOf", () => {
                 fullyApplied
             )
         );
-        console.log( toHex( fullyAppliedSerialized ) );
+        // console.log( toHex( fullyAppliedSerialized ) );
         const result = Machine.evalSimple( fullyApplied );
         expect( result.tag ).toEqual( CEKValueTag.Const );
     });

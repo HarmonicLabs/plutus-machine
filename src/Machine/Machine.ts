@@ -129,8 +129,10 @@ export class Machine {
         budgetSpent: ExBudget;
         logs: string[];
     } {
+        this.resetLogs();
+        const budgetBefore = this.budget.clone();
         const result = this.run( term );
-        const budgetSpent = ExBudget.sub( this.initialBudget, this.budget );
+        const budgetSpent = ExBudget.sub( budgetBefore, this.budget );
         return { result, budgetSpent, logs: this.logs };
     }
     run(term: UPLCTermObj): CEKValueObj {
