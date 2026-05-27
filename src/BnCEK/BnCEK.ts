@@ -245,6 +245,17 @@ function getList( list: CEKValue ): ConstValue[] | undefined
     return list.value.slice();
 }
 
+function getArray( arr: CEKValue ): ConstValue[] | undefined
+{
+    if(!(
+        arr instanceof CEKConst &&
+        arr.type[0] === ConstTyTag.array &&
+        Array.isArray( arr.value )
+    )) return undefined;
+
+    return arr.value.slice();
+}
+
 function getPair( pair: CEKValue ): Pair<ConstValue,ConstValue> | undefined
 {
     if(!(
@@ -2930,7 +2941,7 @@ export class BnCEK
 
     lengthOfArray( _arr: CEKValue ): ConstOrErr
     {
-        const arr = getList( _arr );
+        const arr = getArray( _arr );
         if( arr === undefined ) return new CEKError( "lengthOfArray :: not an array", { _arr } );
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.lengthOfArray );
         this.machineBudget.sub({ mem: f.mem.at( _bigintOne ), cpu: f.cpu.at( _bigintOne ) });
@@ -2951,7 +2962,7 @@ export class BnCEK
 
     indexArray( _arr: CEKValue, _idx: CEKValue ): ConstOrErr
     {
-        const arr = getList( _arr );
+        const arr = getArray( _arr );
         const idx = getInt( _idx );
         if( arr === undefined || idx === undefined )
             return new CEKError( "indexArray :: invalid arguments", { _arr, _idx } );
@@ -3197,7 +3208,8 @@ const _0n = BigInt( 0 );
 const _8n = BigInt( 8 );
 const _1n = BigInt( 1 );
 
-function integerToByteString(
+// exported for testing
+export function integerToByteString(
     bigEndian: boolean,
     size: bigint,
     integer: bigint

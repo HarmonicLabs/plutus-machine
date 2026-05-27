@@ -34,6 +34,16 @@ export class Machine {
     private restricting: boolean;
     private unbudgetedSteps: Uint32Array;
     private builtinCosts: CostModelPlutusV4;
+    /**
+     * If true the machine refuses V4-only constructs (Case-over-Const and
+     * builtins 87..100), matching strict V3 (UPLC 1.1.0) semantics.
+     * Default `false` — i.e. lenient V4 behaviour, the default since the
+     * UPLC default version is 1.2.0.
+     */
+    private strictV3: boolean;
+
+    /** Toggle strict-V3 conformance gating. */
+    setStrictV3( strict: boolean ): void { this.strictV3 = strict; }
 
     private spendBudget(cost: IExBudget): CEKError | undefined {
         this.budget.sub(cost);
@@ -81,6 +91,8 @@ export class Machine {
             this.budget,
             this.logs
         );
+
+        this.strictV3 = false;
     }
 
     resetBudget( newBudget: ExBudget = this.initialBudget ): void
@@ -438,6 +450,16 @@ export class Machine {
                         break;
                     }
                     case CEKValueTag.Const: {
+                        if( this.strictV3 ) {
+                            return {
+                                tag: MachineStateTag.Done,
+                                ctx: undefined,
+                                env: undefined,
+                                term: new CEKError(
+                                    "case-over-constant requires UPLC v1.2.0 (Plutus V4)"
+                                )
+                            } as MachineStateDone;
+                        }
                         const result = constantToUntaggedConstr(value as TypedCEKConst, ctx.branches.length);
                         if (result.tag === CEKValueTag.Error) {
                             return {
