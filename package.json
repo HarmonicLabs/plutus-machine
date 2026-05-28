@@ -34,7 +34,7 @@
   "homepage": "https://github.com/HarmonicLabs/plutus-machine#readme",
   "dependencies": {
     "@harmoniclabs/bigint-utils": "^1.0.0",
-    "@harmoniclabs/cardano-costmodels-ts": "^1.4.0",
+    "@harmoniclabs/cardano-costmodels-ts": "^1.6.1",
     "@harmoniclabs/crypto": "^0.3.0",
     "@harmoniclabs/obj-utils": "^1.0.0",
     "@harmoniclabs/uint8array-utils": "^1.0.3",
