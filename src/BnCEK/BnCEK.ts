@@ -608,6 +608,33 @@ export class BnCEK
 
     eval( tag: UPLCBuiltinTag, args: readonly CEKValue[] ): CEKValue
     {
+        if( process.env.PEBBLE_PROFILE ) return this._evalProfiled( tag, args );
+        return this._evalSwitch( tag, args );
+    }
+
+    private _evalProfiled( tag: UPLCBuiltinTag, args: readonly CEKValue[] ): CEKValue
+    {
+        if( tag === UPLCBuiltinTag.sha2_256 ) {
+            const v: any = args[0];
+            const bs = v?.value?.bytes ?? v?.value ?? new Uint8Array(0);
+            const len = bs.length ?? -1;
+            let acc = 0; for( let i = 0; i < Math.min(64, len); i++ ) acc = (acc * 31 + bs[i]) >>> 0;
+            console.error( "[sha2_256] input bytes:", len, "fp:", acc.toString(16) );
+        }
+        const g: any = globalThis as any;
+        const prof = g.__cekProfile ?? ( g.__cekProfile = { steps: {}, builtins: {} } );
+        const cpu0 = this.machineBudget.cpu;
+        const mem0 = this.machineBudget.mem;
+        const res = this._evalSwitch( tag, args );
+        const e = prof.builtins[ tag ] ?? ( prof.builtins[ tag ] = { n: 0, cpu: BigInt(0), mem: BigInt(0) } );
+        e.n++;
+        e.cpu += cpu0 - this.machineBudget.cpu;
+        e.mem += mem0 - this.machineBudget.mem;
+        return res;
+    }
+
+    private _evalSwitch( tag: UPLCBuiltinTag, args: readonly CEKValue[] ): CEKValue
+    {
         switch( tag )
         {
             case UPLCBuiltinTag.addInteger :                        return this.addInteger( args[0]!, args[1]! );
