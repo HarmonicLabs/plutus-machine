@@ -171,6 +171,16 @@ export class Machine {
                     break;
                 }
                 case MachineStateTag.Return: {
+                    // CONFORMANCE: an error value is ⊥ — the CEK machine halts
+                    // IMMEDIATELY, whatever the surrounding frame is. without
+                    // this, a builtin error produced inside e.g. a `constr`
+                    // field or an ignored function argument was pushed along
+                    // as a first-class value and silently SWALLOWED — scripts
+                    // the node rejects (phase-2) evaluated fine here.
+                    if( state.term instanceof CEKError ) {
+                        this.spendUnbudgetedSteps();
+                        return state.term;
+                    }
                     state = this.returnCompute(state.ctx, state.term);
                     break;
                 }
@@ -183,6 +193,11 @@ export class Machine {
     }
 
     private stepAndMaybeSpend(step: UPLCTermTag): void {
+        if( process.env.PEBBLE_PROFILE ) {
+            const g: any = globalThis as any;
+            const prof = g.__cekProfile ?? ( g.__cekProfile = { steps: {}, builtins: {} } );
+            prof.steps[ step ] = ( prof.steps[ step ] ?? 0 ) + 1;
+        }
         this.unbudgetedSteps[step]! += 1;
         this.unbudgetedSteps[STEP_COUNT]! += 1;
         if (this.unbudgetedSteps[STEP_COUNT]! >= SLIPPAGE) {
@@ -472,6 +487,17 @@ export class Machine {
                         index = (result as ICEKConstr).index;
                         fileds = (result as ICEKConstr).values;
                         break;
+                    }
+                    case CEKValueTag.Error: {
+                        // an errored scrutinee IS the result: propagate the
+                        // underlying error instead of masking it with a
+                        // "got 5" type complaint
+                        return {
+                            tag: MachineStateTag.Done,
+                            ctx: undefined,
+                            env: undefined,
+                            term: value as CEKError
+                        } as MachineStateDone;
                     }
                     default: {
                         return {
