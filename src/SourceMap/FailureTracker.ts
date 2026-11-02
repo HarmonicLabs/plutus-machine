@@ -16,6 +16,8 @@ interface OpenCall {
     readonly entryFrame: MachineContext;
     /** term that made the call, `-1` if unknown */
     readonly callSite: number;
+    /** the call a copied-in body stands for (`map.inlinedCalls`), preferred over `callSite` */
+    readonly inlinedCall: number;
     /** last term with a mapping evaluated in this call (not in its callees), `-1` if none */
     lastSite: number;
 }
@@ -40,6 +42,7 @@ export class FailureTracker
     private readonly mappingAt: Int32Array;
     private readonly functionAt: Int32Array;
     private readonly assertAt: Int32Array;
+    private readonly inlinedCallAt: Int32Array;
 
     /** term that pushed each frame */
     private readonly owners = new Map<MachineContext, number>();
@@ -64,9 +67,11 @@ export class FailureTracker
         this.mappingAt = new Int32Array( n ).fill( -1 );
         this.functionAt = new Int32Array( n ).fill( -1 );
         this.assertAt = new Int32Array( n ).fill( -1 );
+        this.inlinedCallAt = new Int32Array( n ).fill( -1 );
         map.mappings.forEach( ( m, k ) => { if( m[0] < n ) this.mappingAt[ m[0] ] = k; });
         map.functions.forEach( ( f, k ) => { if( f[0] < n ) this.functionAt[ f[0] ] = k; });
         map.asserts.forEach( ( a, k ) => { if( a[0] < n ) this.assertAt[ a[0] ] = k; });
+        ( map.inlinedCalls ?? [] ).forEach( ( c, k ) => { if( c[0] < n ) this.inlinedCallAt[ c[0] ] = k; });
     }
 
     /** pass to `Machine.setStepHook` */
@@ -115,7 +120,13 @@ export class FailureTracker
         }
 
         const fn = this.functionAt[i];
-        if( fn >= 0 ) this.calls.push({ fn, entryFrame: ctx, callSite: this.callSite(), lastSite: -1 });
+        if( fn >= 0 ) this.calls.push({
+            fn,
+            entryFrame: ctx,
+            callSite: this.callSite(),
+            inlinedCall: this.inlinedCallAt[i],
+            lastSite: -1
+        });
 
         const assert = this.assertAt[i];
         if( assert >= 0 ) this.conditions.push({ assert, entryFrame: ctx });
@@ -203,20 +214,13 @@ export class FailureTracker
             const functionName = nameIdx >= 0 ? this.map.names[ nameIdx ] : undefined;
             const frameLocation = (
                 k === calls.length - 1 ? location :
-                this.locationOfTerm( calls[ k + 1 ].callSite ) ?? this.locationOfTerm( call.lastSite )
+                this.callLocation( calls[ k + 1 ] ) ?? this.locationOfTerm( call.lastSite )
             );
             stack.push( functionName === undefined ? { location: frameLocation } : { functionName, location: frameLocation } );
         }
-        if( calls.length === 0 )
-        {
-            if( location !== undefined ) stack.push({ location });
-        }
-        else
-        {
-            // code outside any function that made the outermost call
-            const outer = this.locationOfTerm( calls[0].callSite );
-            if( outer !== undefined ) stack.push({ location: outer });
-        }
+        // outside any function the failure itself is the only frame (code that runs before
+        // the outermost call, such as hoisted definitions, is not a caller)
+        if( calls.length === 0 && location !== undefined ) stack.push({ location });
 
         return location === undefined ? { message, stack } : { message, location, stack };
     }
@@ -226,10 +230,21 @@ export class FailureTracker
         for( let k = this.calls.length - 1; k >= 0; k-- )
         {
             const call = this.calls[k];
-            const loc = this.locationOfTerm( call.lastSite ) ?? this.locationOfTerm( call.callSite );
+            const loc = this.locationOfTerm( call.lastSite ) ?? this.callLocation( call );
             if( loc !== undefined ) return loc;
         }
         return this.locationOfTerm( this.rootLastSite );
+    }
+
+    /** where `call` was made from */
+    private callLocation( call: OpenCall ): SourceLocation | undefined
+    {
+        if( call.inlinedCall >= 0 )
+        {
+            const c = ( this.map.inlinedCalls ?? [] )[ call.inlinedCall ];
+            return { source: this.map.sources[ c[1] ], line: c[2], column: c[3], endLine: c[4], endColumn: c[5] };
+        }
+        return this.locationOfTerm( call.callSite );
     }
 
     private locationOfTerm( termIdx: number ): SourceLocation | undefined

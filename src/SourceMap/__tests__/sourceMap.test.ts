@@ -319,6 +319,26 @@ describe("locateFailure", () => {
         ]);
     });
 
+    test("a body copied in place of its call: the caller's frame points at the call", () => {
+        const err = new ErrorUPLC();
+        const checkBody = new Case( UPLCConst.bool( false ), [ err, int( 1 ) ] );
+        // entry's body: [ (lam x x) <check's body, copied in> ]
+        const entryBody = app( new Lambda( v( 0 ) ), checkBody );
+        const one = int( 7 );
+        const prog = app( new Lambda( entryBody ), one );
+        const index = indexProgram( prog );
+        const map = mapFor( prog, {
+            mappings: [ [ err, 6, 5 ], [ one, 20, 9 ] ],
+            functions: [ [ checkBody, "check", 5 ], [ entryBody, "entry", 10 ] ],
+        });
+        map.inlinedCalls = [ [ index.indexOf( checkBody )!, 0, 11, 15, 11, 25 ] ];
+        const failure = locateFailure({ term: prog, map: parseSourceMap( map ) })!;
+        expect( failure.stack.map( f => [ f.functionName, f.location?.line, f.location?.column ] ) ).toEqual([
+            [ "check", 6, 5 ],
+            [ "entry", 11, 15 ],
+        ]);
+    });
+
     test("finds the program under applied parameters", () => {
         const err = new ErrorUPLC();
         // (lam param (lam x (case x [error, param])))

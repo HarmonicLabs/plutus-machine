@@ -24,6 +24,14 @@ export type UPLCSourceMapFunction = [ number, number, number, number, number ];
  */
 export type UPLCSourceMapAssert = [ number, number, number, number, number, number ];
 
+/**
+ * `[ entryTermIndex, sourceIndex, startLine, startColumn, endLine, endColumn ]`
+ *
+ * A function body the compiler copied in place of a call, and the range of that call:
+ * with no application left to point at, it is where the call frame's caller stands.
+ */
+export type UPLCSourceMapInlinedCall = [ number, number, number, number, number, number ];
+
 /** Source map of a UPLC program, version 1. */
 export interface UPLCSourceMap {
     version: 1;
@@ -44,6 +52,8 @@ export interface UPLCSourceMap {
     mappings: UPLCSourceMapping[];
     functions: UPLCSourceMapFunction[];
     asserts: UPLCSourceMapAssert[];
+    /** optional; entry terms also listed in `functions` */
+    inlinedCalls?: UPLCSourceMapInlinedCall[];
 }
 
 export class UPLCSourceMapError extends Error {}
@@ -135,6 +145,14 @@ export function parseSourceMap( json: string | object ): UPLCSourceMap
         checkRange( a, 2, "assert" );
     }
 
+    const inlinedCalls = obj.inlinedCalls === undefined ? undefined : tuples( obj.inlinedCalls, 6, "inlinedCalls" ) as UPLCSourceMapInlinedCall[];
+    for( const c of inlinedCalls ?? [] )
+    {
+        checkTerm( c[0], "inlined call" );
+        checkSource( c[1], "inlined call" );
+        checkRange( c, 2, "inlined call" );
+    }
+
     const result: UPLCSourceMap = {
         version: 1,
         programHash,
@@ -148,6 +166,7 @@ export function parseSourceMap( json: string | object ): UPLCSourceMap
     if( typeof obj.compiler === "string" ) result.compiler = obj.compiler;
     if( programVersion !== undefined ) result.programVersion = programVersion;
     if( sourcesContent !== undefined ) result.sourcesContent = sourcesContent;
+    if( inlinedCalls !== undefined ) result.inlinedCalls = inlinedCalls;
     return result;
 }
 
