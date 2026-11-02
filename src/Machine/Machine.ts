@@ -25,6 +25,12 @@ const n0 = BigInt(0);
 const n1 = BigInt(1);
 const n2 = BigInt(2);
 
+/**
+ * Receives every machine state before the machine steps it, the final one included.
+ * It must not modify the state.
+ */
+export type MachineStepHook = ( state: Readonly<MachineState> ) => void;
+
 export class Machine {
 
     // private static readonly I64_MIN = BigInt("-9223372036854775808");
@@ -44,6 +50,14 @@ export class Machine {
 
     /** Toggle strict-V3 conformance gating. */
     setStrictV3( strict: boolean ): void { this.strictV3 = strict; }
+
+    private stepHook: MachineStepHook | undefined = undefined;
+
+    /**
+     * Calls `hook` with every state of the next evaluations (see `MachineStepHook`);
+     * `undefined` removes it. Used to trace failing evaluations, see `locateFailure`.
+     */
+    setStepHook( hook: MachineStepHook | undefined ): void { this.stepHook = hook; }
 
     private spendBudget(cost: IExBudget): CEKError | undefined {
         this.budget.sub(cost);
@@ -164,7 +178,10 @@ export class Machine {
             term,
         };
 
+        // read once: without a hook each step costs a single comparison
+        const stepHook = this.stepHook;
         while (true) {
+            if( stepHook !== undefined ) stepHook( state );
             switch (state.tag) {
                 case MachineStateTag.Compute: {
                     state = this.compute(state.ctx, state.env, state.term);

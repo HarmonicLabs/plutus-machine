@@ -4,3 +4,4 @@ export * from "./CEKFrames";
 export * from "./CEKSteps";
 export * from "./CEKValue";
 export * from "./Machine";
+export * from "./SourceMap";
