@@ -20,6 +20,11 @@ const STEP_COUNT = (
         .length + 1 // 1 extra for the total count of steps, used to trigger budget spending
 );
 const SLIPPAGE = 0x7f_ff_ff_ff; // max i32
+/**
+ * steps between budget checks when the budget is restricted, as in the reference machine:
+ * an evaluation over budget stops within this many steps (an infinite loop terminates)
+ */
+const RESTRICTED_SLIPPAGE = 200;
 
 const n0 = BigInt(0);
 const n1 = BigInt(1);
@@ -38,6 +43,8 @@ export class Machine {
     private initialBudget: ExBudget;
     private budget: ExBudget;
     private restricting: boolean;
+    /** steps between budget checks */
+    private slippage: number;
     private unbudgetedSteps: Uint32Array;
     private builtinCosts: CostModelPlutusV4;
     /**
@@ -52,6 +59,8 @@ export class Machine {
     setStrictV3( strict: boolean ): void { this.strictV3 = strict; }
 
     private stepHook: MachineStepHook | undefined = undefined;
+    /** `PEBBLE_PROFILE` is set: count steps and builtins (see `globalThis.__cekProfile`) */
+    private profiling: boolean = false;
 
     /**
      * Calls `hook` with every state of the next evaluations (see `MachineStepHook`);
@@ -83,6 +92,7 @@ export class Machine {
         this.budget = new ExBudget({ cpu: initial.cpu, mem: initial.mem });
 
         this.restricting = initial.cpu !== unlimitedBudget.cpu || initial.mem !== unlimitedBudget.mem;
+        this.slippage = this.restricting ? RESTRICTED_SLIPPAGE : SLIPPAGE;
         this.unbudgetedSteps = new Uint32Array(STEP_COUNT + 1);
 
         const isV4 = isCostModelsV4(costmodel);
@@ -113,6 +123,10 @@ export class Machine {
     {
         this.budget = newBudget.clone();
         this.builtinEvaluator.resetBudget( this.budget );
+        // a new budget may restrict a machine created without one, or the other way round
+        const unlimited = ExBudget.unlimited();
+        this.restricting = newBudget.cpu !== unlimited.cpu || newBudget.mem !== unlimited.mem;
+        this.slippage = this.restricting ? RESTRICTED_SLIPPAGE : SLIPPAGE;
     }
 
     resetLogs(): void
@@ -162,7 +176,12 @@ export class Machine {
         return { result, budgetSpent, logs: this.logs };
     }
     run(term: UPLCTermObj): CEKValueObj {
-        this.spendBudget({ cpu: 100, mem: 100 }); // startup cost
+        // read once per evaluation: per step it cost a native call, and throws where
+        // `process` does not exist (browsers)
+        this.profiling = isProfiling();
+        this.builtinEvaluator.profiling = this.profiling;
+        const startupError = this.spendBudget({ cpu: 100, mem: 100 }); // startup cost
+        if( startupError !== undefined ) return startupError;
         let state: MachineState = {
             tag: MachineStateTag.Compute,
             ctx: {
@@ -202,27 +221,32 @@ export class Machine {
                     break;
                 }
                 case MachineStateTag.Done: {
-                    this.spendUnbudgetedSteps();
+                    // the last steps may be the ones that exhaust the budget
+                    const outOfBudget = this.spendUnbudgetedSteps();
+                    if( outOfBudget !== undefined && !( state.term instanceof CEKError ) ) return outOfBudget;
                     return state.term;
                 }
             }
         }
     }
 
-    private stepAndMaybeSpend(step: UPLCTermTag): void {
-        if( process.env.PEBBLE_PROFILE ) {
+    /** counts a step; every `slippage` steps spends them, returning an error when over budget */
+    private stepAndMaybeSpend(step: UPLCTermTag): CEKError | undefined {
+        if( this.profiling ) {
             const g: any = globalThis as any;
             const prof = g.__cekProfile ?? ( g.__cekProfile = { steps: {}, builtins: {} } );
             prof.steps[ step ] = ( prof.steps[ step ] ?? 0 ) + 1;
         }
         this.unbudgetedSteps[step]! += 1;
         this.unbudgetedSteps[STEP_COUNT]! += 1;
-        if (this.unbudgetedSteps[STEP_COUNT]! >= SLIPPAGE) {
-            this.spendUnbudgetedSteps();
+        if (this.unbudgetedSteps[STEP_COUNT]! >= this.slippage) {
+            return this.spendUnbudgetedSteps();
         }
+        return undefined;
     }
 
-    private spendUnbudgetedSteps(): void {
+    /** spends the counted steps; an error when the budget is restricted and exhausted */
+    private spendUnbudgetedSteps(): CEKError | undefined {
         let cpu = n0;
         let mem = n0;
         const machineCosts = this.machineCosts;
@@ -238,11 +262,19 @@ export class Machine {
         }
 
         this.unbudgetedSteps[STEP_COUNT] = 0;
-        this.spendBudget({ cpu, mem });
+        return this.spendBudget({ cpu, mem });
     }
 
     private compute(ctx: MachineContext, env: CEKEnv, term: UPLCTermObj): MachineState {
-        this.stepAndMaybeSpend(term.tag);
+        const outOfBudget = this.stepAndMaybeSpend(term.tag);
+        if( outOfBudget !== undefined ) {
+            return {
+                tag: MachineStateTag.Done,
+                ctx: undefined,
+                env: undefined,
+                term: outOfBudget
+            } as MachineStateDone;
+        }
         switch (term.tag) {
             case UPLCTermTag.Var: {
                 const val = lookupEnv(env, term.deBruijn);
@@ -685,6 +717,11 @@ export function transferArgStack(fields: CEKValueObj[], ctx: MachineContext): Ma
         } as FrameAwaitFunValue;
     }
     return c;
+}
+
+function isProfiling(): boolean
+{
+    return typeof process !== "undefined" && !!process.env?.PEBBLE_PROFILE;
 }
 
 const defaultMachine = new Machine( defaultV4Costs );

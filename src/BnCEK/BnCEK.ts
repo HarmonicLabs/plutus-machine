@@ -588,6 +588,8 @@ export class BnCEK
      * **reference** to the budget of the actual machine
     **/
     public machineBudget: ExBudget;
+    /** set by the machine at the start of each evaluation (`PEBBLE_PROFILE`) */
+    public profiling: boolean = false;
     constructor(
         readonly getBuiltinCostFunc: <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>,
         machineBudget: ExBudget,
@@ -608,7 +610,7 @@ export class BnCEK
 
     eval( tag: UPLCBuiltinTag, args: readonly CEKValue[] ): CEKValue
     {
-        if( process.env.PEBBLE_PROFILE ) return this._evalProfiled( tag, args );
+        if( this.profiling ) return this._evalProfiled( tag, args );
         return this._evalSwitch( tag, args );
     }
 
