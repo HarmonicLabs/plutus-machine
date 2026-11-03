@@ -32,6 +32,14 @@ export type UPLCSourceMapAssert = [ number, number, number, number, number, numb
  */
 export type UPLCSourceMapInlinedCall = [ number, number, number, number, number, number ];
 
+/**
+ * `[ caseTermIndex, sourceIndex, startLine, startColumn, endLine, endColumn ]`
+ *
+ * A `case` the compiler dropped failing branches from (a value with no branch fails just the
+ * same) and the range of the failure they stood for: when that case fails, that failed.
+ */
+export type UPLCSourceMapFailure = [ number, number, number, number, number, number ];
+
 /** Source map of a UPLC program, version 1. */
 export interface UPLCSourceMap {
     version: 1;
@@ -54,6 +62,8 @@ export interface UPLCSourceMap {
     asserts: UPLCSourceMapAssert[];
     /** optional; entry terms also listed in `functions` */
     inlinedCalls?: UPLCSourceMapInlinedCall[];
+    /** optional */
+    failures?: UPLCSourceMapFailure[];
 }
 
 export class UPLCSourceMapError extends Error {}
@@ -153,6 +163,14 @@ export function parseSourceMap( json: string | object ): UPLCSourceMap
         checkRange( c, 2, "inlined call" );
     }
 
+    const failures = obj.failures === undefined ? undefined : tuples( obj.failures, 6, "failures" ) as UPLCSourceMapFailure[];
+    for( const f of failures ?? [] )
+    {
+        checkTerm( f[0], "failure" );
+        checkSource( f[1], "failure" );
+        checkRange( f, 2, "failure" );
+    }
+
     const result: UPLCSourceMap = {
         version: 1,
         programHash,
@@ -167,6 +185,7 @@ export function parseSourceMap( json: string | object ): UPLCSourceMap
     if( programVersion !== undefined ) result.programVersion = programVersion;
     if( sourcesContent !== undefined ) result.sourcesContent = sourcesContent;
     if( inlinedCalls !== undefined ) result.inlinedCalls = inlinedCalls;
+    if( failures !== undefined ) result.failures = failures;
     return result;
 }
 

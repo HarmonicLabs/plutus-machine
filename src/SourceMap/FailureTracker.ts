@@ -43,6 +43,7 @@ export class FailureTracker
     private readonly functionAt: Int32Array;
     private readonly assertAt: Int32Array;
     private readonly inlinedCallAt: Int32Array;
+    private readonly failureAt: Int32Array;
 
     /** term that pushed each frame */
     private readonly owners = new Map<MachineContext, number>();
@@ -68,10 +69,12 @@ export class FailureTracker
         this.functionAt = new Int32Array( n ).fill( -1 );
         this.assertAt = new Int32Array( n ).fill( -1 );
         this.inlinedCallAt = new Int32Array( n ).fill( -1 );
+        this.failureAt = new Int32Array( n ).fill( -1 );
         map.mappings.forEach( ( m, k ) => { if( m[0] < n ) this.mappingAt[ m[0] ] = k; });
         map.functions.forEach( ( f, k ) => { if( f[0] < n ) this.functionAt[ f[0] ] = k; });
         map.asserts.forEach( ( a, k ) => { if( a[0] < n ) this.assertAt[ a[0] ] = k; });
         ( map.inlinedCalls ?? [] ).forEach( ( c, k ) => { if( c[0] < n ) this.inlinedCallAt[ c[0] ] = k; });
+        ( map.failures ?? [] ).forEach( ( f, k ) => { if( f[0] < n ) this.failureAt[ f[0] ] = k; });
     }
 
     /** pass to `Machine.setStepHook` */
@@ -199,9 +202,13 @@ export class FailureTracker
         if( !this.failed ) return undefined;
 
         const location = (
-            this.locationOfTerm( this.failedAt ) ??
-            // a shared `error` (merged asserts): the assert whose condition was false
+            // an assert whose condition was false fails right after: it is the failure, even
+            // when the failing term stands elsewhere (a shared `error` of merged asserts, a
+            // condition the optimizer built from a variable's initializer)
             this.locationOfAssert( this.lastFalseAssert ) ??
+            // a case that lost its failing branches: the failure they stood for
+            this.locationOfFailure( this.failedAt ) ??
+            this.locationOfTerm( this.failedAt ) ??
             this.innermostSite()
         );
 
@@ -254,6 +261,15 @@ export class FailureTracker
         if( k < 0 ) return undefined;
         const m = this.map.mappings[k];
         return { source: this.map.sources[ m[1] ], line: m[2], column: m[3], endLine: m[4], endColumn: m[5] };
+    }
+
+    private locationOfFailure( termIdx: number ): SourceLocation | undefined
+    {
+        if( termIdx < 0 || termIdx >= this.failureAt.length ) return undefined;
+        const k = this.failureAt[ termIdx ];
+        if( k < 0 ) return undefined;
+        const f = ( this.map.failures ?? [] )[k];
+        return { source: this.map.sources[ f[1] ], line: f[2], column: f[3], endLine: f[4], endColumn: f[5] };
     }
 
     private locationOfAssert( assertIdx: number ): SourceLocation | undefined
