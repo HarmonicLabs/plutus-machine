@@ -164,6 +164,29 @@ export class Machine {
         return this.budget;
     }
 
+    /**
+     * The budget left, the steps the machine has not charged yet included (it charges them
+     * in batches); unlike `remainingBudget`, it changes nothing, so a step hook can read it
+     * at every state without moving the point where an evaluation runs out of budget.
+     */
+    peekRemainingBudget(): { cpu: bigint, mem: bigint }
+    {
+        let cpu = this.budget.cpu;
+        let mem = this.budget.mem;
+        const machineCosts = this.machineCosts;
+        for (let i = 0; i < STEP_COUNT; i++) {
+            const count = this.unbudgetedSteps[i]!;
+            if (count === 0) continue;
+            const cost = machineCosts[i as UPLCTermTag];
+            cpu -= BigInt(count) * cost.cpu;
+            mem -= BigInt(count) * cost.mem;
+        }
+        return { cpu, mem };
+    }
+
+    /** lines the current evaluation logged so far */
+    get logCount(): number { return this.logs.length; }
+
     eval( term: UPLCTermObj ): {
         result: CEKValueObj;
         budgetSpent: ExBudget;

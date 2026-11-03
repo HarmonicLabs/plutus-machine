@@ -46,10 +46,12 @@ the failed evaluation so that it fails the same way. It finds the program the ma
 under the root applications (parameters and script arguments), comparing term count and
 program hash, and returns `undefined` when the map is for another program.
 
-The failure's location is, in order: the failing term (an `error`, the application of a
-failing builtin, a `case` with no matching branch); for an `error` shared by several asserts,
-the assert whose condition returned `false`; else the last mapped term of the innermost open
-call. Each open call frame points at the call that made it.
+The failure's location is, in order: the assert whose condition returned `false` (an assert
+fails right after, whatever term raises the error: one shared by several asserts, a condition
+the compiler rewrote); for a `case` the compiler dropped failing branches from, the failure they
+stood for (`failures`); the failing term (an `error`, the application of a failing builtin, a
+`case` with no matching branch); else the last mapped term of the innermost open call. Each
+open call frame points at the call that made it.
 
 `Machine.setStepHook( hook )` exposes the same mechanism: the hook receives every machine
 state before it is stepped. Without a hook a step costs one comparison more.
@@ -70,7 +72,8 @@ The format is not tied to a compiler: any compiler can emit it.
   "mappings": [ [ 12, 0, 6, 12, 6, 22 ] ],
   "functions": [ [ 3, 1, 0, 5, 1 ] ],
   "asserts": [ [ 9, 0, 6, 5, 6, 23 ] ],
-  "inlinedCalls": [ [ 3, 0, 11, 15, 11, 25 ] ]
+  "inlinedCalls": [ [ 3, 0, 11, 15, 11, 25 ] ],
+  "failures": [ [ 17, 0, 7, 5, 7, 20 ] ]
 }
 ```
 
@@ -89,8 +92,65 @@ The format is not tied to a compiler: any compiler can emit it.
   the root of an assert's condition and the range of the assert statement.
 - **`inlinedCalls`** (optional): `[ entryTermIndex, sourceIndex, startLine, startColumn, endLine,
   endColumn ]`, a body copied in place of a call, and that call's range.
+- **`failures`** (optional): `[ caseTermIndex, sourceIndex, startLine, startColumn, endLine,
+  endColumn ]`, a `case` the compiler dropped failing branches from (a value with no branch
+  fails just the same), and the range of the failure they stood for (the assert, the `match`).
 - **Positions**: lines and columns start at 1, columns count UTF-16 code units, ends are
   exclusive.
 - **Sources**: paths relative to the project root, with forward slashes. Only user code is
   mapped. `sourcesContent` (optional, parallel to `sources`) holds the texts, for code frames.
 - **Compatibility**: readers reject any `version` but 1 and ignore unknown fields.
+
+## Recording an evaluation: stepping backwards
+
+`recordEvaluation` evaluates a term on a new machine and keeps every state. Machine states never
+change once created (environments are persistent lists, frames are immutable), so the recording
+holds the states themselves and any of them can be inspected afterwards: this is how a debugger
+steps backwards.
+
+```ts
+import { recordEvaluation } from "@harmoniclabs/plutus-machine";
+
+const rec = recordEvaluation( term, { costModel, budget } );
+rec.states;            // every state, in order
+rec.cpu[ i ];          // budget spent before state i (rec.mem too)
+rec.valueOf( i );      // what the term computed at state i evaluates to
+rec.result, rec.logs, rec.failed;
+```
+
+`returnOf( i )` is the state that returns the value of the term computed at `i`: the first later
+state returning to the same frame object. `envDepth` and `envExtends` tell which environments
+extend which (a term evaluated in a call, or in a closure made there, sees an extension of the
+call's). A recording stops keeping states after `maxStates` (default 2,000,000) and says so
+(`complete`); the evaluation goes on.
+
+## Saved evaluations
+
+A script evaluation saved to a file runs again elsewhere, the same way: the script (parameters
+applied), its arguments, the cost model and the budget. buildooor saves the ones that fail
+(`saveFailedEvaluations`); `pebble debug --eval <file>` replays them.
+
+```ts
+import { parseSavedEvaluation, savedEvaluationTerm, savedEvaluationToJson } from "@harmoniclabs/plutus-machine";
+
+writeFileSync( file, JSON.stringify( savedEvaluationToJson({ program, args, budget, costModel }) ) );
+
+const ev = parseSavedEvaluation( readFileSync( file, "utf8" ) );
+const rec = recordEvaluation( savedEvaluationTerm( ev ), { costModel: ev.costModel, budget: ev.budget } );
+```
+
+```json
+{
+  "type": "plutus-script-evaluation",
+  "version": 1,
+  "program": "<flat program, hex>",
+  "args": [ "<CBOR data, hex>" ],
+  "budget": { "cpu": "10000000000", "mem": "14000000" },
+  "costModel": { },
+  "purpose": "spend", "index": 0, "scriptHash": "<hex>",
+  "error": "explicit error from uplc",
+  "location": { "source": "src/index.pebble", "line": 50, "column": 13, "endLine": 50, "endColumn": 41 }
+}
+```
+
+Only `type`, `version`, `program` and `args` are required.
