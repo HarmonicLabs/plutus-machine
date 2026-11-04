@@ -187,6 +187,9 @@ export class Machine {
     /** lines the current evaluation logged so far */
     get logCount(): number { return this.logs.length; }
 
+    /** the lines the current evaluation logged so far (the array `eval` returns as `logs`) */
+    get currentLogs(): readonly string[] { return this.logs; }
+
     eval( term: UPLCTermObj ): {
         result: CEKValueObj;
         budgetSpent: ExBudget;

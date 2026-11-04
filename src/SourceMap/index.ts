@@ -5,3 +5,5 @@ export * from "./findMappedProgram";
 export * from "./FailureTracker";
 export * from "./locateFailure";
 export * from "./formatFailure";
+export * from "./TraceReplay";
+export * from "./evaluateWithSourceMap";

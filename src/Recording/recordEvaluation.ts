@@ -7,6 +7,10 @@ import { MachineContext } from "../Machine/MachineContext";
 import { CEKValueObj } from "../CEKValue";
 import { MachineStateTag } from "../_internal/MachineStateTag";
 import { CEKValueTag } from "../_internal/CEKValueTag";
+import { UPLCSourceMap } from "../SourceMap/UPLCSourceMap";
+import { TraceReplay } from "../SourceMap/TraceReplay";
+import { indexProgram } from "../SourceMap/ProgramIndex";
+import { findMappedProgram } from "../SourceMap/findMappedProgram";
 
 export interface RecordEvaluationOptions {
     /** cost model and budget of the evaluation to reproduce; default: V4 costs, no limit */
@@ -18,6 +22,13 @@ export interface RecordEvaluationOptions {
      * and the recording says it is incomplete
      */
     maxStates?: number;
+    /**
+     * the source map of the program in `term` (`program`, else searched): the traces the
+     * compiler removed are put back in the logs, where they would have run (see `TraceReplay`)
+     */
+    map?: UPLCSourceMap;
+    /** the subterm `map` describes */
+    program?: UPLCTerm;
 }
 
 const DEFAULT_MAX_STATES = 2_000_000;
@@ -126,13 +137,16 @@ export function recordEvaluation( term: UPLCTerm, opts: RecordEvaluationOptions 
     const logCount: number[] = [];
     let complete = true;
 
+    const replay = traceReplayFor( term, machine, opts );
     machine.setStepHook( state => {
+        // traces put back belong to the state that made them run
+        replay?.onStep( state );
         if( states.length >= maxStates ) { complete = false; return; }
         const left = machine.peekRemainingBudget();
         states.push( state );
         cpu.push( Number( startCpu - left.cpu ) );
         mem.push( Number( startMem - left.mem ) );
-        logCount.push( machine.logCount );
+        logCount.push( replay !== undefined ? replay.logs.length : machine.logCount );
     });
     const { result, budgetSpent, logs } = machine.eval( term );
     machine.setStepHook( undefined );
@@ -144,7 +158,19 @@ export function recordEvaluation( term: UPLCTerm, opts: RecordEvaluationOptions 
         Uint32Array.from( logCount ),
         result,
         budgetSpent,
-        logs.slice(),
+        ( replay !== undefined ? replay.logs : logs ).slice(),
         complete
     );
+}
+
+/** the replay of the traces `opts.map` keeps, when it has some and describes the program */
+function traceReplayFor( term: UPLCTerm, machine: Machine, opts: RecordEvaluationOptions ): TraceReplay | undefined
+{
+    const map = opts.map;
+    if( map === undefined || ( map.tracePoints?.length ?? 0 ) === 0 ) return undefined;
+    const program = opts.program ?? findMappedProgram( term, map );
+    if( program === undefined ) return undefined;
+    const index = indexProgram( program );
+    if( index.terms.length !== map.termCount ) return undefined;
+    return new TraceReplay( index, map, { machineLogs: () => machine.currentLogs, costModel: opts.costModel } );
 }

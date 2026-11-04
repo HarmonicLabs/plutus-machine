@@ -95,11 +95,48 @@ The format is not tied to a compiler: any compiler can emit it.
 - **`failures`** (optional): `[ caseTermIndex, sourceIndex, startLine, startColumn, endLine,
   endColumn ]`, a `case` the compiler dropped failing branches from (a value with no branch
   fails just the same), and the range of the failure they stood for (the assert, the `match`).
+- **`traces`** and **`tracePoints`** (optional): see below.
 - **Positions**: lines and columns start at 1, columns count UTF-16 code units, ends are
   exclusive.
 - **Sources**: paths relative to the project root, with forward slashes. Only user code is
   mapped. `sourcesContent` (optional, parallel to `sources`) holds the texts, for code frames.
 - **Compatibility**: readers reject any `version` but 1 and ignore unknown fields.
+
+### Traces the compiler removed
+
+A compiler can remove a program's traces (Pebble's `removeTraces`): the program is the one the
+source without them compiles to, smaller and optimized as if they were never there, and the map
+keeps them, so tools evaluating the program with the map print them where they would have run:
+
+```json
+"traces": [
+  { "kind": "assert", "at": [ 0, 4, 5, 4, 45 ], "message": "x must be positive" },
+  { "kind": "trace", "at": [ 0, 3, 5, 3, 17 ], "expression": "x * 2", "program": "0101…" }
+],
+"tracePoints": [ [ 14, 1, 0, -1, 0 ], [ 20, 0, 1, -1 ], [ 31, 0, 2, 1 ] ]
+```
+
+- **`traces`**: `kind` is `trace` (a trace statement), `assert` (an assert's message) or `fail`
+  (a failure's message); `at` the statement, `[ sourceIndex, startLine, startColumn, endLine,
+  endColumn ]`, none in library code. A message that is always the same is `message`; one
+  computed from values is its source text, `expression`, and a program (flat, hex) computing it
+  from those values (a `delay` of the message when it reads none).
+- **`tracePoints`**: `[ termIndex, traceIndex, when, branch, ...arguments ]`, sorted by term
+  index, a term's traces in the order they ran. `when` `0`: when the term is computed; `1`: when
+  the term, an assert's condition, returns false; `2`: when the evaluation fails at the term (an
+  `error`; a `case` that lost failing branches, `branch` being the one the trace was in, `-1` for
+  any); `3`: when the term returns its value, which the message's program takes last. `arguments`:
+  the de Bruijn index, in the term's environment, of each value the program takes (`0` is the
+  innermost lambda), `-1` when the program no longer has it.
+- A trace without a point has no place left in the program: the optimizer removed the code
+  around it (a helper reduced to a builtin has no call left to trace).
+
+`evaluateWithSourceMap({ term, map, costModel, budget })` evaluates once and returns the result,
+the cost, the logs with the removed traces back (in order with the ones the program kept) and,
+when it failed, where (as `locateFailure`). A computed message is evaluated on the side, from the
+values the program holds at that point, uncounted and unable to stop the evaluation; when a value
+is missing the log says so (`<x * 2: not computed by the stripped script>`). `TraceReplay` is the
+step hook doing it, and `recordEvaluation( term, { map } )` puts the traces in a recording's logs.
 
 ## Recording an evaluation: stepping backwards
 

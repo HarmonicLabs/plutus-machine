@@ -40,6 +40,44 @@ export type UPLCSourceMapInlinedCall = [ number, number, number, number, number,
  */
 export type UPLCSourceMapFailure = [ number, number, number, number, number, number ];
 
+/**
+ * A trace the compiler removed from the program (Pebble's `removeTraces`): the program is the
+ * one compiled without it, and tools evaluating it with the map print it where it would have
+ * run (see `tracePoints`, `evaluateWithSourceMap`).
+ */
+export interface UPLCSourceMapTrace {
+    /** `trace`: a trace statement; `assert`: the message of an assert; `fail`: the message of a failure */
+    kind: "trace" | "assert" | "fail";
+    /** the statement, `[ sourceIndex, startLine, startColumn, endLine, endColumn ]`; none in library code */
+    at?: [ number, number, number, number, number ];
+    /** the message, when it is always the same */
+    message?: string;
+    /** a message computed from values: its source text */
+    expression?: string;
+    /**
+     * a message computed from values: a program (flat, hex) that is a function of those values
+     * (see the trace point's arguments) and returns the message, a string; a `delay` of the
+     * message when it takes none
+     */
+    program?: string;
+}
+
+/**
+ * `[ termIndex, traceIndex, when, branch, ...arguments ]`: where the trace `traces[traceIndex]`
+ * would have run. Sorted by term index; a term's traces in the order they ran.
+ *
+ * - `when` `0`: when the term is computed
+ * - `when` `1`: when the term, an assert's condition, returns false
+ * - `when` `2`: when the evaluation fails at the term (an `error`; or a `case` the compiler dropped
+ *   failing branches from: `branch` is the index of the one the trace was in, `-1` for any)
+ * - `when` `3`: when the term returns its value, which the message's program takes after the
+ *   arguments (`trace v;` of a variable computed there)
+ *
+ * `arguments`, for a computed message: the de Bruijn index of each value its program takes, in the
+ * environment of the term (`0` is the innermost lambda); `-1` when the program no longer has it.
+ */
+export type UPLCSourceMapTracePoint = number[];
+
 /** Source map of a UPLC program, version 1. */
 export interface UPLCSourceMap {
     version: 1;
@@ -64,6 +102,10 @@ export interface UPLCSourceMap {
     inlinedCalls?: UPLCSourceMapInlinedCall[];
     /** optional */
     failures?: UPLCSourceMapFailure[];
+    /** optional: the traces the compiler removed */
+    traces?: UPLCSourceMapTrace[];
+    /** optional: where they would have run */
+    tracePoints?: UPLCSourceMapTracePoint[];
 }
 
 export class UPLCSourceMapError extends Error {}
@@ -171,6 +213,59 @@ export function parseSourceMap( json: string | object ): UPLCSourceMap
         checkRange( f, 2, "failure" );
     }
 
+    let traces: UPLCSourceMapTrace[] | undefined = undefined;
+    if( obj.traces !== undefined )
+    {
+        if( !Array.isArray( obj.traces ) ) throw new UPLCSourceMapError( "source map 'traces' must be an array" );
+        traces = obj.traces.map( ( t: any, k: number ): UPLCSourceMapTrace => {
+            const what = `trace ${k}`;
+            if( typeof t !== "object" || t === null ) throw new UPLCSourceMapError( `source map ${what} must be an object` );
+            if( t.kind !== "trace" && t.kind !== "assert" && t.kind !== "fail" )
+            throw new UPLCSourceMapError( `source map ${what} has an unknown kind: ${String( t.kind )}` );
+            const trace: UPLCSourceMapTrace = { kind: t.kind };
+            if( t.at !== undefined )
+            {
+                if( !Array.isArray( t.at ) || t.at.length !== 5 || !t.at.every( isNat ) )
+                throw new UPLCSourceMapError( `source map ${what} 'at' must be 5 non-negative integers` );
+                checkSource( t.at[0], what );
+                checkRange( t.at, 1, what );
+                trace.at = t.at;
+            }
+            for( const field of [ "message", "expression" ] as const )
+            {
+                if( t[ field ] === undefined ) continue;
+                if( typeof t[ field ] !== "string" ) throw new UPLCSourceMapError( `source map ${what} '${field}' must be a string` );
+                trace[ field ] = t[ field ];
+            }
+            if( t.program !== undefined )
+            {
+                if( typeof t.program !== "string" || !/^([0-9a-f]{2})*$/.test( t.program ) )
+                throw new UPLCSourceMapError( `source map ${what} 'program' must be hex` );
+                trace.program = t.program;
+            }
+            return trace;
+        });
+    }
+
+    let tracePoints: UPLCSourceMapTracePoint[] | undefined = undefined;
+    if( obj.tracePoints !== undefined )
+    {
+        if( !Array.isArray( obj.tracePoints ) ) throw new UPLCSourceMapError( "source map 'tracePoints' must be an array" );
+        let prev = -1;
+        tracePoints = obj.tracePoints.map( ( p: any ) => {
+            if(
+                !Array.isArray( p ) || p.length < 4 ||
+                !p.every( ( x: unknown, i: number ) => typeof x === "number" && Number.isSafeInteger( x ) && ( x >= 0 || ( i >= 3 && x === -1 ) ) )
+            ) throw new UPLCSourceMapError( `source map trace point is invalid: ${JSON.stringify( p )}` );
+            checkTerm( p[0], "trace point" );
+            if( traces === undefined || p[1] >= traces.length ) throw new UPLCSourceMapError( `source map trace point refers to trace ${p[1]}, which does not exist` );
+            if( p[2] > 3 ) throw new UPLCSourceMapError( `source map trace point has an unknown 'when': ${p[2]}` );
+            if( p[0] < prev ) throw new UPLCSourceMapError( "source map 'tracePoints' must be sorted by term index" );
+            prev = p[0];
+            return p as UPLCSourceMapTracePoint;
+        });
+    }
+
     const result: UPLCSourceMap = {
         version: 1,
         programHash,
@@ -186,6 +281,8 @@ export function parseSourceMap( json: string | object ): UPLCSourceMap
     if( sourcesContent !== undefined ) result.sourcesContent = sourcesContent;
     if( inlinedCalls !== undefined ) result.inlinedCalls = inlinedCalls;
     if( failures !== undefined ) result.failures = failures;
+    if( traces !== undefined ) result.traces = traces;
+    if( tracePoints !== undefined ) result.tracePoints = tracePoints;
     return result;
 }
 
