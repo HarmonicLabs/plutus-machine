@@ -22,8 +22,8 @@ interface Marks {
     mappings?: [ UPLCTerm, number, number? ][];
     /** body root, name, line */
     functions?: [ UPLCTerm, string, number ][];
-    /** condition root, line */
-    asserts?: [ UPLCTerm, number ][];
+    /** condition root, line, whether the term computes the condition negated */
+    asserts?: [ UPLCTerm, number, boolean? ][];
     sourcesContent?: string;
 }
 
@@ -48,7 +48,10 @@ function mapFor( program: UPLCTerm, marks: Marks ): UPLCSourceMap
             .map( ([ t, line, col = 1 ]) => [ idx( t ), 0, line, col, line, col + 1 ] as UPLCSourceMapping )
             .sort( ( a, b ) => a[0] - b[0] ),
         functions: ( marks.functions ?? [] ).map( ([ t, name, line ]) => [ idx( t ), names.push( name ) - 1, 0, line, 1 ] ),
-        asserts: ( marks.asserts ?? [] ).map( ([ t, line ]) => [ idx( t ), 0, line, 5, line, 20 ] ),
+        asserts: ( marks.asserts ?? [] ).map( ([ t, line, negated ]) => negated
+            ? [ idx( t ), 0, line, 5, line, 20, 1 ]
+            : [ idx( t ), 0, line, 5, line, 20 ]
+        ),
     };
     if( marks.sourcesContent !== undefined ) map.sourcesContent = [ marks.sourcesContent ];
     // whatever the test builds must also be a valid map
@@ -158,10 +161,18 @@ describe("parseSourceMap", () => {
         [ "an end before the start", ( m: any ) => { m.mappings[0][5] = 0; } ],
         [ "a missing name", ( m: any ) => { m.functions[0][1] = 4; } ],
         [ "sourcesContent of another length", ( m: any ) => { m.sourcesContent = []; } ],
+        [ "an assert negated with 2", ( m: any ) => { m.asserts = [ [ 2, 0, 2, 3, 2, 4, 2 ] ]; } ],
+        [ "an assert with 8 fields", ( m: any ) => { m.asserts = [ [ 2, 0, 2, 3, 2, 4, 1, 0 ] ]; } ],
     ])( "rejects %s", ( _, change ) => {
         const m = valid();
         change( m );
         expect( () => parseSourceMap( m ) ).toThrow( UPLCSourceMapError );
+    });
+
+    test("accepts asserts with and without `negated`", () => {
+        const m: any = valid();
+        m.asserts = [ [ 0, 0, 1, 1, 1, 5 ], [ 2, 0, 2, 3, 2, 4, 1 ] ];
+        expect( parseSourceMap( m ).asserts ).toEqual([ [ 0, 0, 1, 1, 1, 5 ], [ 2, 0, 2, 3, 2, 4, 1 ] ]);
     });
 
     test("accepts functions without a name", () => {
@@ -265,6 +276,23 @@ describe("locateFailure", () => {
         const failure = locateFailure({ term: prog, map })!;
         expect( failure.location?.line ).toBe( 6 );
         expect( failure.stack.map( f => f.functionName ) ).toEqual([ "check" ]);
+    });
+
+    test("a negated assert condition: the assert fails when it is true", () => {
+        // `assert a < 100` checked as `100 <= a`, its `error` branch dropped: the case has no
+        // location, its condition's mapping is somewhere else (line 2)
+        const negated = app( new Builtin( UPLCBuiltinTag.lessThanEqualInteger ), int( 100 ), v( 0 ) );
+        const cs = new Case( negated, [ v( 0 ) ] );
+        const mapped = ( assertNegated: boolean ) => {
+            const prog = app( new Lambda( cs ), int( 500 ) );
+            return { prog, map: mapFor( prog, { mappings: [ [ negated, 2 ] ], asserts: [ [ negated, 7, assertNegated ] ] } ) };
+        };
+        const { prog, map } = mapped( true );
+        expect( map.asserts[0] ).toHaveLength( 7 );
+        expect( locateFailure({ term: prog, map })?.location?.line ).toBe( 7 );
+        // the same term as the condition itself: true is the assert holding, the failure is the case's
+        const plain = mapped( false );
+        expect( locateFailure({ term: plain.prog, map: plain.map })?.location?.line ).toBe( 2 );
     });
 
     test("a passing evaluation has no failure", () => {

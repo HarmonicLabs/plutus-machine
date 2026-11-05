@@ -18,11 +18,13 @@ export type UPLCSourceMapping = [ number, number, number, number, number, number
 export type UPLCSourceMapFunction = [ number, number, number, number, number ];
 
 /**
- * `[ conditionTermIndex, sourceIndex, startLine, startColumn, endLine, endColumn ]`
+ * `[ conditionTermIndex, sourceIndex, startLine, startColumn, endLine, endColumn, negated? ]`
  *
- * The root of an assert's condition and the range of the assert statement.
+ * The root of an assert's condition and the range of the assert statement. `negated` `1`: the
+ * term computes the condition negated (the compiler swapped the branches), it is true when the
+ * assert fails; absent or `0`: the condition itself.
  */
-export type UPLCSourceMapAssert = [ number, number, number, number, number, number ];
+export type UPLCSourceMapAssert = [ number, number, number, number, number, number ] | [ number, number, number, number, number, number, 0 | 1 ];
 
 /**
  * `[ entryTermIndex, sourceIndex, startLine, startColumn, endLine, endColumn ]`
@@ -189,12 +191,13 @@ export function parseSourceMap( json: string | object ): UPLCSourceMap
         if( f[3] < 1 || f[4] < 1 ) throw new UPLCSourceMapError( `source map function has an invalid position: ${JSON.stringify( f )}` );
     }
 
-    const asserts = tuples( obj.asserts ?? [], 6, "asserts" ) as UPLCSourceMapAssert[];
+    const asserts = tuples( obj.asserts ?? [], [ 6, 7 ], "asserts" ) as UPLCSourceMapAssert[];
     for( const a of asserts )
     {
         checkTerm( a[0], "assert" );
         checkSource( a[1], "assert" );
         checkRange( a, 2, "assert" );
+        if( a.length === 7 && a[6] > 1 ) throw new UPLCSourceMapError( `source map assert has an invalid 'negated': ${JSON.stringify( a )}` );
     }
 
     const inlinedCalls = obj.inlinedCalls === undefined ? undefined : tuples( obj.inlinedCalls, 6, "inlinedCalls" ) as UPLCSourceMapInlinedCall[];
@@ -259,7 +262,7 @@ export function parseSourceMap( json: string | object ): UPLCSourceMap
             ) throw new UPLCSourceMapError( `source map trace point is invalid: ${JSON.stringify( p )}` );
             checkTerm( p[0], "trace point" );
             if( traces === undefined || p[1] >= traces.length ) throw new UPLCSourceMapError( `source map trace point refers to trace ${p[1]}, which does not exist` );
-            if( p[2] > 3 ) throw new UPLCSourceMapError( `source map trace point has an unknown 'when': ${p[2]}` );
+            if( p[2] > 4 ) throw new UPLCSourceMapError( `source map trace point has an unknown 'when': ${p[2]}` );
             if( p[0] < prev ) throw new UPLCSourceMapError( "source map 'tracePoints' must be sorted by term index" );
             prev = p[0];
             return p as UPLCSourceMapTracePoint;
@@ -291,17 +294,21 @@ function isNat( n: unknown ): n is number
     return typeof n === "number" && Number.isSafeInteger( n ) && n >= 0;
 }
 
-/** `functions` allows `-1` as name index, every other field is a natural number */
-function tuples( arr: unknown, len: number, what: string ): number[][]
+/**
+ * `len`: the number of fields, or the numbers allowed (an optional last field);
+ * `functions` allows `-1` as name index, every other field is a natural number
+ */
+function tuples( arr: unknown, len: number | readonly number[], what: string ): number[][]
 {
     if( !Array.isArray( arr ) ) throw new UPLCSourceMapError( `source map '${what}' must be an array` );
+    const lens = typeof len === "number" ? [ len ] : len;
     for( const entry of arr )
     {
         if(
             !Array.isArray( entry ) ||
-            entry.length !== len ||
+            !lens.includes( entry.length ) ||
             !entry.every( ( n, i ) => isNat( n ) || ( what === "functions" && i === 1 && n === -1 ) )
-        ) throw new UPLCSourceMapError( `source map '${what}' entries must be arrays of ${len} integers: ${JSON.stringify( entry )}` );
+        ) throw new UPLCSourceMapError( `source map '${what}' entries must be arrays of ${lens.join( " or " )} integers: ${JSON.stringify( entry )}` );
     }
     return arr as number[][];
 }

@@ -23,7 +23,7 @@ const flatHex = ( t: UPLCTerm ) => toHex( compileUPLC( new UPLCProgram( [ 1, 1, 
 interface Point {
     term: UPLCTerm;
     trace: UPLCSourceMapTrace;
-    when?: 0 | 1 | 2;
+    when?: 0 | 1 | 2 | 4;
     branch?: number;
     args?: number[];
 }
@@ -76,6 +76,21 @@ describe("evaluateWithSourceMap: traces the compiler removed", () => {
         // \x -> if x < 10 then x else error
         const program = new Lambda( ifThenElse( cond, v( 0 ), new ErrorUPLC() ) );
         const map = mapFor( program, [ { term: cond, trace: { kind: "assert", message: "x too big" }, when: 1 } ]);
+
+        const ok = run( program, map, int( 5 ) );
+        expect( ok.result ).toBeInstanceOf( CEKConst );
+        expect( ok.logs ).toEqual([]);
+
+        const bad = run( program, map, int( 50 ) );
+        expect( bad.result ).toBeInstanceOf( CEKError );
+        expect( bad.logs ).toEqual([ "x too big" ]);
+    });
+
+    test("a negated assert condition (when 4): the message logs when it is true", () => {
+        // `x < 10` checked as `10 <= x`, the branches swapped: true when the assert fails
+        const negated = app( builtin( UPLCBuiltinTag.lessThanEqualInteger ), int( 10 ), v( 0 ) );
+        const program = new Lambda( ifThenElse( negated, new ErrorUPLC(), v( 0 ) ) );
+        const map = mapFor( program, [ { term: negated, trace: { kind: "assert", message: "x too big" }, when: 4 } ]);
 
         const ok = run( program, map, int( 5 ) );
         expect( ok.result ).toBeInstanceOf( CEKConst );
@@ -196,6 +211,8 @@ describe("parseSourceMap: traces", () => {
         });
         expect( map.traces ).toHaveLength( 2 );
         expect( map.tracePoints ).toEqual([ [ 1, 0, 1, -1 ], [ 2, 1, 0, -1, 0, -1 ] ]);
+        // a negated assert condition's message
+        expect( parse({ traces: [ { kind: "assert", message: "m" } ], tracePoints: [ [ 1, 0, 4, -1 ] ] }).tracePoints ).toEqual([ [ 1, 0, 4, -1 ] ]);
     });
 
     test("invalid ones are rejected", () => {
@@ -204,7 +221,7 @@ describe("parseSourceMap: traces", () => {
         expect( () => parse({ traces: [ { kind: "trace", program: "xyz" } ] }) ).toThrow( /hex/ );
         expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 9, 0, 0, -1 ] ] }) ).toThrow( /beyond/ );
         expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 1, 1, 0, -1 ] ] }) ).toThrow( /does not exist/ );
-        expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 1, 0, 4, -1 ] ] }) ).toThrow( /when/ );
+        expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 1, 0, 5, -1 ] ] }) ).toThrow( /when/ );
         expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 2, 0, 0, -1 ], [ 1, 0, 0, -1 ] ] }) ).toThrow( /sorted/ );
     });
 });

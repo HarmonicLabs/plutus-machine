@@ -88,8 +88,11 @@ The format is not tied to a compiler: any compiler can emit it.
 - **`functions`**: `[ entryTermIndex, nameIndex, sourceIndex, line, column ]`. The entry term is
   the root of a function's body: evaluating it enters the function, after a call or where the
   compiler copied the body in. `nameIndex` is `-1` for a function without a name.
-- **`asserts`**: `[ conditionTermIndex, sourceIndex, startLine, startColumn, endLine, endColumn ]`,
-  the root of an assert's condition and the range of the assert statement.
+- **`asserts`**: `[ conditionTermIndex, sourceIndex, startLine, startColumn, endLine, endColumn,
+  negated? ]`, the root of an assert's condition and the range of the assert statement.
+  `negated` `1`: the term computes the condition negated, so it is true when the assert fails
+  (a compiler that swapped the branches to compare with a constant, `x < 20` checked as
+  `20 <= x`); absent or `0`: the condition itself.
 - **`inlinedCalls`** (optional): `[ entryTermIndex, sourceIndex, startLine, startColumn, endLine,
   endColumn ]`, a body copied in place of a call, and that call's range.
 - **`failures`** (optional): `[ caseTermIndex, sourceIndex, startLine, startColumn, endLine,
@@ -125,7 +128,8 @@ keeps them, so tools evaluating the program with the map print them where they w
   index, a term's traces in the order they ran. `when` `0`: when the term is computed; `1`: when
   the term, an assert's condition, returns false; `2`: when the evaluation fails at the term (an
   `error`; a `case` that lost failing branches, `branch` being the one the trace was in, `-1` for
-  any); `3`: when the term returns its value, which the message's program takes last. `arguments`:
+  any); `3`: when the term returns its value, which the message's program takes last; `4`: when
+  the term, an assert's condition negated, returns true. `arguments`:
   the de Bruijn index, in the term's environment, of each value the program takes (`0` is the
   innermost lambda), `-1` when the program no longer has it.
 - A trace without a point has no place left in the program: the optimizer removed the code

@@ -22,8 +22,11 @@ interface Point {
 }
 
 interface OpenTerm {
-    /** `1`: an assert's condition, its points run if it returns false; `3`: they take the value */
-    readonly when: 1 | 3;
+    /**
+     * `1`: an assert's condition, its points run if it returns false; `4`: one negated, they run
+     * if it returns true; `3`: they take the value
+     */
+    readonly when: 1 | 3 | 4;
     readonly points: readonly Point[];
     /** frame that receives the term's value */
     readonly entryFrame: MachineContext;
@@ -58,7 +61,7 @@ export class TraceReplay
     /** term that pushed each frame */
     private readonly owners = new Map<MachineContext, number>();
     private readonly open: OpenTerm[] = [];
-    /** traces printed because their condition was false: the failure that follows does not print them again */
+    /** traces printed because their assert's condition failed: the failure that follows does not print them again */
     private readonly printedOnFalse = new Set<number>();
     private readonly programs = new Map<number, UPLCTermObj | null>();
     private readonly out: string[] = [];
@@ -126,14 +129,17 @@ export class TraceReplay
         const points = this.pointsAt.get( i );
         if( points === undefined ) return;
         const onFalse: Point[] = [];
+        const onTrue: Point[] = [];
         const onValue: Point[] = [];
         for( const p of points )
         {
             if( p.when === 0 ) this.emit( p, env );
             else if( p.when === 1 ) onFalse.push( p );
+            else if( p.when === 4 ) onTrue.push( p );
             else if( p.when === 3 ) onValue.push( p );
         }
         if( onFalse.length > 0 ) this.open.push({ when: 1, points: onFalse, entryFrame: ctx, env });
+        if( onTrue.length > 0 ) this.open.push({ when: 4, points: onTrue, entryFrame: ctx, env });
         if( onValue.length > 0 ) this.open.push({ when: 3, points: onValue, entryFrame: ctx, env });
     }
 
@@ -144,7 +150,7 @@ export class TraceReplay
         {
             const t = open.pop()!;
             if( t.when === 3 ) for( const p of t.points ) this.emit( p, t.env, value );
-            else if( isFalse( value ) ) for( const p of t.points )
+            else if( isBool( value, t.when === 4 ) ) for( const p of t.points )
             {
                 this.printedOnFalse.add( p.trace );
                 this.emit( p, t.env );
@@ -244,9 +250,9 @@ export class TraceReplay
     }
 }
 
-function isFalse( value: CEKValueObj ): boolean
+function isBool( value: CEKValueObj, b: boolean ): boolean
 {
-    return value.tag === CEKValueTag.Const && ( value as any ).value === false;
+    return value.tag === CEKValueTag.Const && ( value as any ).value === b;
 }
 
 /** the branch `case` takes for `value`: a constructor's index (a boolean: false 0, true 1; an integer: itself) */

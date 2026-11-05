@@ -6,7 +6,7 @@ import { MachineContextTag } from "../_internal/MachineContextTag";
 import { CEKValueTag } from "../_internal/CEKValueTag";
 import { CEKValueObj } from "../CEKValue";
 import { ProgramIndex } from "./ProgramIndex";
-import { UPLCSourceMap } from "./UPLCSourceMap";
+import { UPLCSourceMap, UPLCSourceMapAssert } from "./UPLCSourceMap";
 import { ScriptFailure, ScriptFailureFrame, SourceLocation } from "./ScriptFailure";
 
 interface OpenCall {
@@ -51,7 +51,7 @@ export class FailureTracker
     private readonly conditions: OpenCondition[] = [];
     /** like `OpenCall.lastSite`, outside any function */
     private rootLastSite = -1;
-    /** last assert whose condition returned `false`, `-1` if none */
+    /** last assert whose condition returned `false` (a negated one `true`), `-1` if none */
     private lastFalseAssert = -1;
     private prev: Readonly<MachineState> | undefined = undefined;
 
@@ -173,7 +173,7 @@ export class FailureTracker
         while( conditions.length > 0 && conditions[ conditions.length - 1 ].entryFrame === ctx )
         {
             const c = conditions.pop()!;
-            if( isFalse( value ) ) this.lastFalseAssert = c.assert;
+            if( assertFails( this.map.asserts[ c.assert ], value ) ) this.lastFalseAssert = c.assert;
         }
         const calls = this.calls;
         while( calls.length > 0 && calls[ calls.length - 1 ].entryFrame === ctx ) calls.pop();
@@ -280,7 +280,14 @@ export class FailureTracker
     }
 }
 
-function isFalse( value: CEKValueObj ): boolean
+/** whether `value`, computed by the condition term of `assert`, makes the assert fail */
+export function assertFails( assert: UPLCSourceMapAssert, value: CEKValueObj ): boolean
 {
-    return value.tag === CEKValueTag.Const && ( value as any ).value === false;
+    return assert[6] === 1 ? isBool( value, true ) : isBool( value, false );
 }
+
+function isBool( value: CEKValueObj, b: boolean ): boolean
+{
+    return value.tag === CEKValueTag.Const && ( value as any ).value === b;
+}
+
