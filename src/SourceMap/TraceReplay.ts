@@ -24,13 +24,16 @@ interface Point {
 interface OpenTerm {
     /**
      * `1`: an assert's condition, its points run if it returns false; `4`: one negated, they run
-     * if it returns true; `3`: they take the value
+     * if it returns true; `3`: they take the value; `5`: they run whenever the value is applied;
+     * `6`: an application of a reduced function's value, they take its result
      */
-    readonly when: 1 | 3 | 4;
+    readonly when: 1 | 3 | 4 | 5 | 6;
     readonly points: readonly Point[];
     /** frame that receives the term's value */
     readonly entryFrame: MachineContext;
     readonly env: CEKEnv;
+    /** `6`: the argument the function was applied to */
+    readonly appliedTo?: CEKValueObj;
 }
 
 export interface TraceReplayOptions {
@@ -63,6 +66,8 @@ export class TraceReplay
     private readonly open: OpenTerm[] = [];
     /** traces printed because their assert's condition failed: the failure that follows does not print them again */
     private readonly printedOnFalse = new Set<number>();
+    /** values computed by terms with `when` 5 points (functions the compiler reduced): what runs when one is applied */
+    private readonly onApply = new WeakMap<object, { readonly points: readonly Point[], readonly env: CEKEnv }[]>();
     private readonly programs = new Map<number, UPLCTermObj | null>();
     private readonly out: string[] = [];
     private machineSeen = 0;
@@ -131,16 +136,19 @@ export class TraceReplay
         const onFalse: Point[] = [];
         const onTrue: Point[] = [];
         const onValue: Point[] = [];
+        const onApplied: Point[] = [];
         for( const p of points )
         {
             if( p.when === 0 ) this.emit( p, env );
             else if( p.when === 1 ) onFalse.push( p );
             else if( p.when === 4 ) onTrue.push( p );
             else if( p.when === 3 ) onValue.push( p );
+            else if( p.when === 5 || p.when === 6 ) onApplied.push( p );
         }
         if( onFalse.length > 0 ) this.open.push({ when: 1, points: onFalse, entryFrame: ctx, env });
         if( onTrue.length > 0 ) this.open.push({ when: 4, points: onTrue, entryFrame: ctx, env });
         if( onValue.length > 0 ) this.open.push({ when: 3, points: onValue, entryFrame: ctx, env });
+        if( onApplied.length > 0 ) this.open.push({ when: 5, points: onApplied, entryFrame: ctx, env });
     }
 
     private onReturn( value: CEKValueObj, ctx: MachineContext ): void
@@ -149,12 +157,40 @@ export class TraceReplay
         while( open.length > 0 && open[ open.length - 1 ].entryFrame === ctx )
         {
             const t = open.pop()!;
-            if( t.when === 3 ) for( const p of t.points ) this.emit( p, t.env, value );
+            if( t.when === 3 || t.when === 6 ) for( const p of t.points ) this.emit( p, t.env, value, t.appliedTo );
+            else if( t.when === 5 )
+            {
+                const at = this.onApply.get( value ) ?? [];
+                at.push({ points: t.points, env: t.env });
+                this.onApply.set( value, at );
+            }
             else if( isBool( value, t.when === 4 ) ) for( const p of t.points )
             {
                 this.printedOnFalse.add( p.trace );
                 this.emit( p, t.env );
             }
+        }
+        // a value applied: `[f a]` applies f's value when a's returns, a `case` its branch's
+        // value to each field
+        if( ctx.tag === MachineContextTag.FrameAwaitArg ) this.applied( ctx.value, value, ctx.ctx );
+        else if( ctx.tag === MachineContextTag.FrameAwaitFunValue ) this.applied( value, ctx.value, ctx.ctx );
+    }
+
+    /**
+     * `fn` is applied to `arg`, its result going to `resultFrame`: the traces of a function the
+     * compiler reduced to `fn` run (`5`), or wait for the result (`6`)
+     */
+    private applied( fn: CEKValueObj, arg: CEKValueObj, resultFrame: MachineContext ): void
+    {
+        for( const { points, env } of this.onApply.get( fn ) ?? [] )
+        {
+            const onResult: Point[] = [];
+            for( const p of points )
+            {
+                if( p.when === 5 ) this.emit( p, env, undefined, arg );
+                else onResult.push( p );
+            }
+            if( onResult.length > 0 ) this.open.push({ when: 6, points: onResult, entryFrame: resultFrame, env, appliedTo: arg });
         }
     }
 
@@ -199,17 +235,20 @@ export class TraceReplay
         while( this.machineSeen < logs.length ) this.out.push( logs[ this.machineSeen++ ] );
     }
 
-    private emit( p: Point, env: CEKEnv, value?: CEKValueObj ): void
+    private emit( p: Point, env: CEKEnv, value?: CEKValueObj, appliedTo?: CEKValueObj ): void
     {
         this.syncMachineLogs();
         const trace = this.map.traces?.[ p.trace ];
         if( trace === undefined ) return;
         if( trace.message !== undefined ) { this.out.push( trace.message ); return; }
-        this.out.push( this.compute( p, trace, env, value ) );
+        this.out.push( this.compute( p, trace, env, value, appliedTo ) );
     }
 
-    /** a computed message, from the values the program has at that point (and the value returned there) */
-    private compute( p: Point, trace: UPLCSourceMapTrace, env: CEKEnv, returned: CEKValueObj | undefined ): string
+    /**
+     * a computed message, from the values the program has at that point (and the value returned
+     * there, or the argument a reduced function was applied to: index `-2`)
+     */
+    private compute( p: Point, trace: UPLCSourceMapTrace, env: CEKEnv, returned: CEKValueObj | undefined, appliedTo?: CEKValueObj ): string
     {
         const what = trace.expression ?? "a computed message";
         const program = this.program( p.trace );
@@ -217,7 +256,7 @@ export class TraceReplay
         const values: CEKValueObj[] = [];
         for( const a of p.args )
         {
-            const v = a < 0 ? undefined : lookupEnv( env, a );
+            const v = a === -2 ? appliedTo : a < 0 ? undefined : lookupEnv( env, a );
             if( v === undefined ) return `<${what}: not computed by the stripped script>`;
             values.push( v );
         }

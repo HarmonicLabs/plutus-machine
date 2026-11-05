@@ -258,11 +258,16 @@ export function parseSourceMap( json: string | object ): UPLCSourceMap
         tracePoints = obj.tracePoints.map( ( p: any ) => {
             if(
                 !Array.isArray( p ) || p.length < 4 ||
-                !p.every( ( x: unknown, i: number ) => typeof x === "number" && Number.isSafeInteger( x ) && ( x >= 0 || ( i >= 3 && x === -1 ) ) )
+                !p.every( ( x: unknown, i: number ) => typeof x === "number" && Number.isSafeInteger( x ) && (
+                    x >= 0 ||
+                    ( i >= 3 && x === -1 ) ||
+                    // the argument a reduced function is applied to (`when` 5, 6)
+                    ( i >= 4 && x === -2 && ( p[2] === 5 || p[2] === 6 ) )
+                ))
             ) throw new UPLCSourceMapError( `source map trace point is invalid: ${JSON.stringify( p )}` );
             checkTerm( p[0], "trace point" );
             if( traces === undefined || p[1] >= traces.length ) throw new UPLCSourceMapError( `source map trace point refers to trace ${p[1]}, which does not exist` );
-            if( p[2] > 4 ) throw new UPLCSourceMapError( `source map trace point has an unknown 'when': ${p[2]}` );
+            if( p[2] > 6 ) throw new UPLCSourceMapError( `source map trace point has an unknown 'when': ${p[2]}` );
             if( p[0] < prev ) throw new UPLCSourceMapError( "source map 'tracePoints' must be sorted by term index" );
             prev = p[0];
             return p as UPLCSourceMapTracePoint;

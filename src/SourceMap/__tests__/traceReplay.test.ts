@@ -23,7 +23,7 @@ const flatHex = ( t: UPLCTerm ) => toHex( compileUPLC( new UPLCProgram( [ 1, 1, 
 interface Point {
     term: UPLCTerm;
     trace: UPLCSourceMapTrace;
-    when?: 0 | 1 | 2 | 4;
+    when?: 0 | 1 | 2 | 4 | 5 | 6;
     branch?: number;
     args?: number[];
 }
@@ -137,6 +137,40 @@ describe("evaluateWithSourceMap: traces the compiler removed", () => {
         ]);
     });
 
+    test("a function reduced to a value (when 5): its traces run whenever the value is applied", () => {
+        // `function shout( s ) { trace "shout"; trace s; return s + "!"; }`, reduced to the
+        // builtin `appendString` applied to... nothing of `s`: here `(\f -> f "a" ++ f "b") (appendString "z")`
+        const reduced = app( builtin( UPLCBuiltinTag.appendString ), str( "z" ) );
+        const program = app(
+            new Lambda( app( builtin( UPLCBuiltinTag.appendString ), app( v( 0 ), str( "a" ) ), app( v( 0 ), str( "b" ) ) ) ),
+            reduced
+        );
+        const message = new Lambda( v( 0 ) );
+        const map = mapFor( program, [
+            { term: reduced, trace: { kind: "trace", message: "shout" }, when: 5 },
+            // the function's parameter: the argument it is applied to
+            { term: reduced, trace: { kind: "trace", expression: "s", program: flatHex( message ) }, when: 5, args: [ -2 ] },
+        ]);
+        const r = evaluateWithSourceMap({ term: program, map, program });
+        expect( ( r.result as CEKConst ).value ).toBe( "zazb" );
+        expect( r.logs ).toEqual([ "shout", "a", "shout", "b" ]);
+    });
+
+    test("a function reduced to a value (when 6): a trace of its result runs when an application returns", () => {
+        // `function shout( s ) { const r = "z" + s; trace r; return r; }`, reduced to `appendString "z"`
+        const reduced = app( builtin( UPLCBuiltinTag.appendString ), str( "z" ) );
+        const program = app(
+            new Lambda( app( builtin( UPLCBuiltinTag.appendString ), app( v( 0 ), str( "a" ) ), app( v( 0 ), str( "b" ) ) ) ),
+            reduced
+        );
+        // the message takes the argument, then the result
+        const message = new Lambda( new Lambda( app( builtin( UPLCBuiltinTag.appendString ), v( 1 ), app( builtin( UPLCBuiltinTag.appendString ), str( " -> " ), v( 0 ) ) ) ) );
+        const map = mapFor( program, [
+            { term: reduced, trace: { kind: "trace", expression: "r", program: flatHex( message ) }, when: 6, args: [ -2 ] },
+        ]);
+        expect( evaluateWithSourceMap({ term: program, map, program }).logs ).toEqual([ "a -> za", "b -> zb" ]);
+    });
+
     test("a computed message that fails is reported, and the evaluation goes on", () => {
         const body = int( 3 );
         const program = new Lambda( body );
@@ -213,6 +247,8 @@ describe("parseSourceMap: traces", () => {
         expect( map.tracePoints ).toEqual([ [ 1, 0, 1, -1 ], [ 2, 1, 0, -1, 0, -1 ] ]);
         // a negated assert condition's message
         expect( parse({ traces: [ { kind: "assert", message: "m" } ], tracePoints: [ [ 1, 0, 4, -1 ] ] }).tracePoints ).toEqual([ [ 1, 0, 4, -1 ] ]);
+        // a reduced function's trace, reading the argument it is applied to
+        expect( parse({ traces: [ { kind: "trace", expression: "s", program: "00" } ], tracePoints: [ [ 1, 0, 5, -1, -2 ] ] }).tracePoints ).toEqual([ [ 1, 0, 5, -1, -2 ] ]);
     });
 
     test("invalid ones are rejected", () => {
@@ -221,7 +257,9 @@ describe("parseSourceMap: traces", () => {
         expect( () => parse({ traces: [ { kind: "trace", program: "xyz" } ] }) ).toThrow( /hex/ );
         expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 9, 0, 0, -1 ] ] }) ).toThrow( /beyond/ );
         expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 1, 1, 0, -1 ] ] }) ).toThrow( /does not exist/ );
-        expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 1, 0, 5, -1 ] ] }) ).toThrow( /when/ );
+        expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 1, 0, 7, -1 ] ] }) ).toThrow( /when/ );
+        // the applied argument only for `when` 5
+        expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 1, 0, 0, -1, -2 ] ] }) ).toThrow( /invalid/ );
         expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 2, 0, 0, -1 ], [ 1, 0, 0, -1 ] ] }) ).toThrow( /sorted/ );
     });
 });

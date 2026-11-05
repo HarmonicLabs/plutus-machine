@@ -129,11 +129,15 @@ keeps them, so tools evaluating the program with the map print them where they w
   the term, an assert's condition, returns false; `2`: when the evaluation fails at the term (an
   `error`; a `case` that lost failing branches, `branch` being the one the trace was in, `-1` for
   any); `3`: when the term returns its value, which the message's program takes last; `4`: when
-  the term, an assert's condition negated, returns true. `arguments`:
+  the term, an assert's condition negated, returns true; `5`: whenever the value the term
+  computes is applied, the traces of a function the compiler reduced to that value (`λx. 2 * x`
+  to the builtin `multiplyInteger 2`: one call, one application), an argument `-2` standing for
+  the value it is applied to (the function's parameter); `6`: when such an application returns,
+  the message's program taking the result last. `arguments`:
   the de Bruijn index, in the term's environment, of each value the program takes (`0` is the
   innermost lambda), `-1` when the program no longer has it.
 - A trace without a point has no place left in the program: the optimizer removed the code
-  around it (a helper reduced to a builtin has no call left to trace).
+  around it, which never runs (a branch whose condition it found constant).
 
 `evaluateWithSourceMap({ term, map, costModel, budget })` evaluates once and returns the result,
 the cost, the logs with the removed traces back (in order with the ones the program kept) and,
