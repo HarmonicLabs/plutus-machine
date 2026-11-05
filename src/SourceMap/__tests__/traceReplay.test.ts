@@ -247,6 +247,8 @@ describe("parseSourceMap: traces", () => {
         expect( map.tracePoints ).toEqual([ [ 1, 0, 1, -1 ], [ 2, 1, 0, -1, 0, -1 ] ]);
         // a negated assert condition's message
         expect( parse({ traces: [ { kind: "assert", message: "m" } ], tracePoints: [ [ 1, 0, 4, -1 ] ] }).tracePoints ).toEqual([ [ 1, 0, 4, -1 ] ]);
+        // a copy of a trace for one of its places
+        expect( parse({ traces: [ { kind: "trace", expression: "x" }, { kind: "trace", expression: "x", of: 0 } ] }).traces?.[1].of ).toBe( 0 );
         // a reduced function's trace, reading the argument it is applied to
         expect( parse({ traces: [ { kind: "trace", expression: "s", program: "00" } ], tracePoints: [ [ 1, 0, 5, -1, -2 ] ] }).tracePoints ).toEqual([ [ 1, 0, 5, -1, -2 ] ]);
     });
@@ -258,6 +260,9 @@ describe("parseSourceMap: traces", () => {
         expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 9, 0, 0, -1 ] ] }) ).toThrow( /beyond/ );
         expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 1, 1, 0, -1 ] ] }) ).toThrow( /does not exist/ );
         expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 1, 0, 7, -1 ] ] }) ).toThrow( /when/ );
+        // `of`: an earlier trace that is not a copy itself
+        expect( () => parse({ traces: [ { kind: "trace", of: 0 } ] }) ).toThrow( /'of'/ );
+        expect( () => parse({ traces: [ { kind: "trace" }, { kind: "trace", of: 0 }, { kind: "trace", of: 1 } ] }) ).toThrow( /'of'/ );
         // the applied argument only for `when` 5
         expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 1, 0, 0, -1, -2 ] ] }) ).toThrow( /invalid/ );
         expect( () => parse({ traces: [ { kind: "trace" } ], tracePoints: [ [ 2, 0, 0, -1 ], [ 1, 0, 0, -1 ] ] }) ).toThrow( /sorted/ );

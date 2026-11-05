@@ -62,6 +62,12 @@ export interface UPLCSourceMapTrace {
      * message when it takes none
      */
     program?: string;
+    /**
+     * this entry is the trace `traces[of]` at one place of it, where the compiler replaced a
+     * value the message reads with an expression: its program takes that place's values (tools
+     * listing the removed traces list `traces[of]` once)
+     */
+    of?: number;
 }
 
 /**
@@ -245,6 +251,12 @@ export function parseSourceMap( json: string | object ): UPLCSourceMap
                 if( typeof t.program !== "string" || !/^([0-9a-f]{2})*$/.test( t.program ) )
                 throw new UPLCSourceMapError( `source map ${what} 'program' must be hex` );
                 trace.program = t.program;
+            }
+            if( t.of !== undefined )
+            {
+                if( !isNat( t.of ) || t.of >= k || obj.traces[ t.of ]?.of !== undefined )
+                throw new UPLCSourceMapError( `source map ${what} 'of' must be the index of an earlier trace that is not a copy` );
+                trace.of = t.of;
             }
             return trace;
         });

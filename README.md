@@ -123,7 +123,10 @@ keeps them, so tools evaluating the program with the map print them where they w
   (a failure's message); `at` the statement, `[ sourceIndex, startLine, startColumn, endLine,
   endColumn ]`, none in library code. A message that is always the same is `message`; one
   computed from values is its source text, `expression`, and a program (flat, hex) computing it
-  from those values (a `delay` of the message when it reads none).
+  from those values (a `delay` of the message when it reads none). `of` (optional): the entry is
+  trace `of` at one place of it, where the compiler replaced a value the message reads with an
+  expression (a helper inlined with its argument); its program takes that place's values, and a
+  tool listing the removed traces lists trace `of` once.
 - **`tracePoints`**: `[ termIndex, traceIndex, when, branch, ...arguments ]`, sorted by term
   index, a term's traces in the order they ran. `when` `0`: when the term is computed; `1`: when
   the term, an assert's condition, returns false; `2`: when the evaluation fails at the term (an
