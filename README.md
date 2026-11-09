@@ -18,6 +18,34 @@ import { Machine } from "@harmoniclabs/plutus-machine";
 const { result, budgetSpent, logs } = Machine.eval( term );
 ```
 
+## Evaluate with WebCrypto
+
+`evalAsync` gives the result, budget and logs of `eval`, but computes `verifyEd25519Signature`,
+and `sha2_256` on inputs of 2 KB or more, with the platform's WebCrypto
+(`globalThis.crypto.subtle`: native code, off the main thread in Node). The machine does not wait
+for these results where it starts them, only where a builtin or a `case` reads them: it goes on
+meanwhile, and several can be computed at once.
+
+```ts
+const { result, budgetSpent, logs } = await Machine.evalAsync( term );
+```
+
+- The answers are those of the node. Each WebCrypto algorithm is checked once per `subtle` on a
+  few probes, and one that answers otherwise is not used (an Ed25519 verifier that checks the
+  equation with the cofactor accepts signatures the node rejects). Before the engine checks an
+  Ed25519 signature, the machine applies libsodium's byte checks (`ed25519SignatureMayBeValid`).
+- `sha2_256` on shorter inputs stays in JavaScript: below about 1.5 KB that is faster than
+  waiting for WebCrypto (Node 22). `sha2_256MinBytes` sets the threshold.
+- `subtle` gives another implementation; `subtle: null` computes everything in JavaScript.
+- Other crypto builtins (blake2b, sha3, keccak, ripemd, secp256k1, BLS) have no WebCrypto
+  counterpart and run as in `eval`.
+- A machine runs one evaluation at a time: until `machine.evalAsync` settles, the machine refuses
+  others. `Machine.evalAsync` takes a machine of its own for each evaluation.
+
+An Ed25519 verification takes 1.5 ms in JavaScript and 0.19 ms on WebCrypto when awaited at once,
+0.05 ms each with 64 in flight (Node 22). On the 89 scripts of `plutus_use_cases`, the ones that
+verify signatures run 1.2x faster; the others take the same time as with `eval`.
+
 ## Source maps: where a script failed
 
 A compiler can write a source map next to a script; when the script fails, `locateFailure`

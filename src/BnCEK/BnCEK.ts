@@ -6,7 +6,9 @@ import { ConstValue, LedgerValue, Pair, isConstValueInt, UPLCTerm, ConstType, co
 import { BuiltinCostsOf } from "../Machine/BuiltinCosts/BuiltinCosts";
 import { ExBudget } from "../Machine/ExBudget";
 import { PartialBuiltin } from "./PartialBuiltin";
-import { BlsG1, BlsG2, BlsResult, blake2b, blake2b_224, bls12_381_G1_add, bls12_381_G1_compress, bls12_381_G1_equal, bls12_381_G1_hashToGroup, bls12_381_G1_neg, bls12_381_G1_scalarMul, bls12_381_G1_uncompress, bls12_381_G2_add, bls12_381_G2_compress, bls12_381_G2_equal, bls12_381_G2_hashToGroup, bls12_381_G2_neg, bls12_381_G2_scalarMul, bls12_381_G2_uncompress, bls12_381_finalVerify, bls12_381_millerLoop, bls12_381_mulMlResult, isBlsG1, isBlsG2, isBlsResult, keccak_256, verifyEcdsaSecp256k1Signature, verifySchnorrSecp256k1Signature, ripemd160, sha2_256_sync, verifyEd25519Signature_sync } from "@harmoniclabs/crypto";
+import { BlsG1, BlsG2, BlsResult, blake2b, blake2b_224, bls12_381_G1_add, bls12_381_G1_compress, bls12_381_G1_equal, bls12_381_G1_hashToGroup, bls12_381_G1_neg, bls12_381_G1_scalarMul, bls12_381_G1_uncompress, bls12_381_G2_add, bls12_381_G2_compress, bls12_381_G2_equal, bls12_381_G2_hashToGroup, bls12_381_G2_neg, bls12_381_G2_scalarMul, bls12_381_G2_uncompress, bls12_381_finalVerify, bls12_381_millerLoop, bls12_381_mulMlResult, isBlsG1, isBlsG2, isBlsResult, keccak_256, verifyEcdsaSecp256k1Signature, verifySchnorrSecp256k1Signature, ripemd160, sha2_256_sync, verifyEd25519Signature_sync, ed25519SignatureMayBeValid } from "@harmoniclabs/crypto";
+import { PendingConstValue } from "../CEKValue/PendingConstValue";
+import { sha2_256_webCrypto, SubtleCryptoLike, verifyEd25519_webCrypto } from "../Machine/webCrypto";
 import { sha3_256 as noble_sha3_256 } from "@noble/hashes/sha3";
 import { CEKError } from "../CEKValue/CEKError";
 import { CEKConst } from "../CEKValue/CEKConst";
@@ -573,6 +575,36 @@ export function haskellMod( a: bigint, b: bigint ): bigint | undefined
 
 type ConstOrErr = CEKConst | CEKError;
 
+/** builtins `Machine.evalAsync` leaves to WebCrypto, while the machine goes on */
+export interface DeferredCrypto {
+    readonly subtle: SubtleCryptoLike;
+    readonly sha2_256: boolean;
+    readonly ed25519: boolean;
+    /** smaller inputs are hashed right away: WebCrypto costs more than it saves on them */
+    readonly sha2_256MinBytes: number;
+    /** settle when the results are written into their constants */
+    readonly started: Promise<void>[];
+}
+
+function deferredConst<T>(
+    deferred: DeferredCrypto,
+    type: ConstType,
+    value: Promise<T>,
+    toConst: ( value: T ) => CEKConst
+): CEKConst
+{
+    const result = new CEKConst( type, undefined );
+    const settled = value.then( v => {
+        const actual = toConst( v );
+        result.type = actual.type;
+        result.typeTag = actual.typeTag;
+        result.value = actual.value;
+    });
+    result.value = new PendingConstValue( settled ) as any;
+    deferred.started.push( settled );
+    return result;
+}
+
 function constOrErr( getConst: () => CEKConst ): ConstOrErr
 {
     try {
@@ -590,6 +622,8 @@ export class BnCEK
     public machineBudget: ExBudget;
     /** set by the machine at the start of each evaluation (`PEBBLE_PROFILE`) */
     public profiling: boolean = false;
+    /** set by the machine during `evalAsync` only */
+    public deferred: DeferredCrypto | undefined = undefined;
     constructor(
         readonly getBuiltinCostFunc: <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>,
         machineBudget: ExBudget,
@@ -1149,6 +1183,12 @@ export class BnCEK
             cpu: f.cpu.at( sb )
         });
 
+        const deferred = this.deferred;
+        if( deferred !== undefined && deferred.sha2_256 && b.length >= deferred.sha2_256MinBytes )
+        {
+            return deferredConst( deferred, constT.byteStr, sha2_256_webCrypto( deferred.subtle, b ), CEKConst.byteString );
+        }
+
         return CEKConst.byteString(
             new Uint8Array(
                 sha2_256_sync( b )
@@ -1251,6 +1291,13 @@ export class BnCEK
             mem: f.mem.at( sk, sm, ss ),
             cpu: f.cpu.at( sk, sm, ss )
         });
+
+        const deferred = this.deferred;
+        if( deferred !== undefined && deferred.ed25519 )
+        {
+            if( !ed25519SignatureMayBeValid( sBytes, kBytes ) ) return CEKConst.bool( false );
+            return deferredConst( deferred, constT.bool, verifyEd25519_webCrypto( deferred.subtle, kBytes, m, sBytes ), CEKConst.bool );
+        }
 
         return constOrErr(() => CEKConst.bool( verifyEd25519Signature_sync( sBytes, m, kBytes ) ));
     }

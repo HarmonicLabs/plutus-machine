@@ -13,6 +13,8 @@ import { FrameAwaitArg, FrameAwaitFunTerm, FrameAwaitFunValue, FrameCases, Frame
 import { BnCEK, PartialBuiltin } from "../BnCEK";
 import { CEKValueTag, cekValueTagToString } from "../_internal/CEKValueTag";
 import { constantToUntaggedConstr } from "./constantToUntaggedConstr";
+import { PendingConstValue } from "../CEKValue/PendingConstValue";
+import { globalSubtle, SubtleCryptoLike, webCryptoSupport } from "./webCrypto";
 
 const STEP_COUNT = (
     Object.keys(UPLCTermTag)
@@ -35,6 +37,41 @@ const n2 = BigInt(2);
  * It must not modify the state.
  */
 export type MachineStepHook = ( state: Readonly<MachineState> ) => void;
+
+export interface EvalAsyncOptions {
+    /**
+     * The WebCrypto to compute with; `null` computes everything in JavaScript.
+     * Default `globalThis.crypto.subtle`. Either way, an algorithm is used only if
+     * it gives the answers of the node on a few probes (checked once per `subtle`).
+     */
+    subtle?: SubtleCryptoLike | null;
+    /**
+     * `sha2_256` inputs shorter than this are hashed in JavaScript: below about 1.5 KB
+     * that is faster than waiting for WebCrypto (Node 22). Default 2048.
+     */
+    sha2_256MinBytes?: number;
+}
+
+export interface EvalResult {
+    result: CEKValueObj;
+    budgetSpent: ExBudget;
+    logs: string[];
+}
+
+const DEFAULT_SHA2_256_MIN_BYTES = 2048;
+
+/**
+ * Returned by a step that reads a constant still being computed, in place of the next
+ * state: the evaluation waits for `Machine.awaiting`, then steps the same state again.
+ */
+const AWAIT = Object.freeze({
+    tag: MachineStateTag.Done,
+    ctx: undefined,
+    env: undefined,
+    term: undefined
+}) as unknown as MachineState;
+
+const BUSY = "the machine is in the middle of an evalAsync; use another machine";
 
 export class Machine {
 
@@ -61,6 +98,13 @@ export class Machine {
     private stepHook: MachineStepHook | undefined = undefined;
     /** `PEBBLE_PROFILE` is set: count steps and builtins (see `globalThis.__cekProfile`) */
     private profiling: boolean = false;
+
+    /** an `evalAsync` is running: the machine holds its state between steps */
+    private evaluatingAsync: boolean = false;
+    /** settles the constant the suspended evaluation reads */
+    private awaiting: Promise<void> | undefined = undefined;
+    /** the state to step again when `awaiting` settles */
+    private suspendedAt: MachineStateReturn | undefined = undefined;
 
     /**
      * Calls `hook` with every state of the next evaluations (see `MachineStepHook`);
@@ -190,25 +234,100 @@ export class Machine {
     /** the lines the current evaluation logged so far (the array `eval` returns as `logs`) */
     get currentLogs(): readonly string[] { return this.logs; }
 
-    eval( term: UPLCTermObj ): {
-        result: CEKValueObj;
-        budgetSpent: ExBudget;
-        logs: string[];
-    } {
+    eval( term: UPLCTermObj ): EvalResult {
+        if( this.evaluatingAsync ) throw new Error( BUSY );
         this.resetLogs();
         const budgetBefore = this.budget.clone();
         const result = this.run( term );
         const budgetSpent = ExBudget.sub( budgetBefore, this.budget );
         return { result, budgetSpent, logs: this.logs };
     }
+
+    /**
+     * `eval`, with the same result, budget and logs, but `verifyEd25519Signature` and
+     * `sha2_256` (on inputs of `sha2_256MinBytes` or more) run on WebCrypto: the
+     * machine goes on, and waits for a result only where it reads it. Nothing else may
+     * use this machine until the returned promise settles.
+     */
+    async evalAsync( term: UPLCTermObj, options: EvalAsyncOptions = {} ): Promise<EvalResult>
+    {
+        if( this.evaluatingAsync ) throw new Error( BUSY );
+        this.evaluatingAsync = true;
+        try {
+            const subtle = options.subtle === undefined ? globalSubtle() : ( options.subtle ?? undefined );
+            const support = subtle === undefined ? undefined : await webCryptoSupport( subtle );
+            const started: Promise<void>[] = [];
+            if( support !== undefined && ( support.sha2_256 || support.ed25519 ) )
+            {
+                this.builtinEvaluator.deferred = {
+                    subtle: support.subtle,
+                    sha2_256: support.sha2_256,
+                    ed25519: support.ed25519,
+                    sha2_256MinBytes: options.sha2_256MinBytes ?? DEFAULT_SHA2_256_MIN_BYTES,
+                    started
+                };
+            }
+
+            this.resetLogs();
+            const budgetBefore = this.budget.clone();
+            let result: CEKValueObj;
+            const start = this.startEvaluation( term );
+            if( start instanceof CEKError ) result = start;
+            else
+            {
+                let end = this.continueEvaluation( start, false );
+                while( end === undefined )
+                {
+                    await this.awaiting;
+                    end = this.continueEvaluation( this.suspendedAt!, true );
+                }
+                result = end;
+            }
+            // the result may hold constants still being computed
+            if(!( result instanceof CEKError )) await Promise.all( started );
+            const budgetSpent = ExBudget.sub( budgetBefore, this.budget );
+            return { result, budgetSpent, logs: this.logs };
+        }
+        finally {
+            this.builtinEvaluator.deferred = undefined;
+            this.awaiting = undefined;
+            this.suspendedAt = undefined;
+            this.evaluatingAsync = false;
+        }
+    }
+
+    /** `evalAsync` with the default cost model and an unlimited budget */
+    static evalAsync( term: UPLCTerm | ToUPLC, options?: EvalAsyncOptions ): Promise<EvalResult>
+    {
+        const uplc = isUPLCTerm( term ) ? term : term.toUPLC( 0 );
+        // a suspended evaluation keeps its machine: concurrent ones need one each
+        const machine = idleMachines.pop() ?? new Machine( defaultV4Costs );
+        machine.resetBudget( machine.initialBudget );
+        return machine.evalAsync( uplc, options ).finally( () => { idleMachines.push( machine ); });
+    }
+
+    static evalSimpleAsync( term: UPLCTerm | ToUPLC, options?: EvalAsyncOptions ): Promise<CEKValueObj>
+    {
+        return Machine.evalAsync( term, options ).then( ({ result }) => result );
+    }
+
     run(term: UPLCTermObj): CEKValueObj {
+        if( this.evaluatingAsync ) throw new Error( BUSY );
+        const start = this.startEvaluation( term );
+        if( start instanceof CEKError ) return start;
+        // nothing is deferred outside `evalAsync`: this steps to the end
+        return this.continueEvaluation( start, false )!;
+    }
+
+    private startEvaluation( term: UPLCTermObj ): MachineState | CEKError
+    {
         // read once per evaluation: per step it cost a native call, and throws where
         // `process` does not exist (browsers)
         this.profiling = isProfiling();
         this.builtinEvaluator.profiling = this.profiling;
         const startupError = this.spendBudget({ cpu: 100, mem: 100 }); // startup cost
         if( startupError !== undefined ) return startupError;
-        let state: MachineState = {
+        return {
             tag: MachineStateTag.Compute,
             ctx: {
                 tag: MachineContextTag.NoFrame,
@@ -222,11 +341,22 @@ export class Machine {
             env: undefined,
             term,
         };
+    }
 
+    /**
+     * Steps from `state` to the end, or, during `evalAsync`, to a step that reads a
+     * constant still being computed: then `undefined`, with that state in `suspendedAt`.
+     * `resumed`: the step hook already received `state`.
+     */
+    private continueEvaluation( state: MachineState, resumed: boolean ): CEKValueObj | undefined
+    {
         // read once: without a hook each step costs a single comparison
         const stepHook = this.stepHook;
         while (true) {
-            if( stepHook !== undefined ) stepHook( state );
+            if( stepHook !== undefined ) {
+                if( resumed ) resumed = false;
+                else stepHook( state );
+            }
             switch (state.tag) {
                 case MachineStateTag.Compute: {
                     state = this.compute(state.ctx, state.env, state.term);
@@ -243,7 +373,12 @@ export class Machine {
                         this.spendUnbudgetedSteps();
                         return state.term;
                     }
-                    state = this.returnCompute(state.ctx, state.term);
+                    const next = this.returnCompute(state.ctx, state.term);
+                    if( next === AWAIT ) {
+                        this.suspendedAt = state;
+                        return undefined;
+                    }
+                    state = next;
                     break;
                 }
                 case MachineStateTag.Done: {
@@ -540,6 +675,11 @@ export class Machine {
                         break;
                     }
                     case CEKValueTag.Const: {
+                        const scrutinee = ( value as ICEKConst ).value;
+                        if( scrutinee instanceof PendingConstValue ) {
+                            this.awaiting = scrutinee.settled;
+                            return AWAIT;
+                        }
                         if( this.strictV3 ) {
                             return {
                                 tag: MachineStateTag.Done,
@@ -642,6 +782,13 @@ export class Machine {
 
                 const newArgs = fun.args.concat( arg );
                 if( newArgs.length === expectedArity ) {
+                    if( this.builtinEvaluator.deferred !== undefined ) {
+                        const pending = firstPendingValue( newArgs );
+                        if( pending !== undefined ) {
+                            this.awaiting = pending.settled;
+                            return AWAIT;
+                        }
+                    }
                     const result = this.callBuiltin( fun.builtinTag, newArgs );
                     return {
                         tag: MachineStateTag.Return,
@@ -745,9 +892,25 @@ export function transferArgStack(fields: CEKValueObj[], ctx: MachineContext): Ma
     return c;
 }
 
+/**
+ * a builtin may copy an argument's value into a new constant (`mkCons`), where a
+ * pending value could never be filled in: all arguments must be settled first
+ */
+function firstPendingValue( args: CEKValueObj[] ): PendingConstValue | undefined
+{
+    for( const arg of args )
+    {
+        if( arg.tag !== CEKValueTag.Const ) continue;
+        const value = ( arg as ICEKConst ).value;
+        if( value instanceof PendingConstValue ) return value;
+    }
+    return undefined;
+}
+
 function isProfiling(): boolean
 {
     return typeof process !== "undefined" && !!process.env?.PEBBLE_PROFILE;
 }
 
 const defaultMachine = new Machine( defaultV4Costs );
+const idleMachines: Machine[] = [];
