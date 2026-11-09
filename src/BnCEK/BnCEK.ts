@@ -3312,8 +3312,8 @@ function bytestringToInteger(
     bs: Uint8Array
 ): ConstOrErr
 {
-    let bytes = bs;
-    bytes = bigEndian ? bytes : bytes.reverse();
+    // `bs` is the program's constant: reverse a copy
+    const bytes = bigEndian ? bs : bs.slice().reverse();
     if( bytes.length === 0 ) return CEKConst.int( 0 );
     return CEKConst.int( BigInt( "0x" + toHex( bytes ) ) )
 }
