@@ -10,6 +10,8 @@ export interface IPartialBuiltin extends ICEKValue {
     forces: number;
 }
 
+const nRequiredArgsCache: ( 0 | 1 | 2 | 3 | 4 | 6 | undefined )[] = [];
+
 export class PartialBuiltin
     implements IPartialBuiltin
 {
@@ -46,9 +48,16 @@ export class PartialBuiltin
     }
 
     /**
-     * @todo
+     * @throws on a tag that is not a builtin
      */
     static getNRequiredArgsFor( builtinTag: UPLCBuiltinTag ): ( 0 | 1 | 2 | 3 | 4 | 6 )
+    {
+        // runs for every builtin application and force
+        return nRequiredArgsCache[ builtinTag ]
+            ?? ( nRequiredArgsCache[ builtinTag ] = PartialBuiltin.nRequiredArgsOf( builtinTag ) );
+    }
+
+    private static nRequiredArgsOf( builtinTag: UPLCBuiltinTag ): ( 0 | 1 | 2 | 3 | 4 | 6 )
     {
         switch( builtinTag )
         {
