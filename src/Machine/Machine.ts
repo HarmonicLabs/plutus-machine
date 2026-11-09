@@ -14,7 +14,7 @@ import { BnCEK, PartialBuiltin } from "../BnCEK";
 import { CEKValueTag, cekValueTagToString } from "../_internal/CEKValueTag";
 import { constantToUntaggedConstr } from "./constantToUntaggedConstr";
 import { PendingConstValue } from "../CEKValue/PendingConstValue";
-import { globalSubtle, SubtleCryptoLike, webCryptoSupport } from "./webCrypto";
+import { globalSubtle, knownWebCryptoSupport, SubtleCryptoLike, webCryptoSupport } from "./webCrypto";
 
 const STEP_COUNT = (
     Object.keys(UPLCTermTag)
@@ -255,17 +255,19 @@ export class Machine {
         this.evaluatingAsync = true;
         try {
             const subtle = options.subtle === undefined ? globalSubtle() : ( options.subtle ?? undefined );
-            const support = subtle === undefined ? undefined : await webCryptoSupport( subtle );
             const started: Promise<void>[] = [];
-            if( support !== undefined && ( support.sha2_256 || support.ed25519 ) )
+            if( subtle !== undefined )
             {
-                this.builtinEvaluator.deferred = {
-                    subtle: support.subtle,
-                    sha2_256: support.sha2_256,
-                    ed25519: support.ed25519,
-                    sha2_256MinBytes: options.sha2_256MinBytes ?? DEFAULT_SHA2_256_MIN_BYTES,
-                    started
-                };
+                // the machine never waits for the check: results started before it ends wait for it
+                const support = knownWebCryptoSupport( subtle ) ?? webCryptoSupport( subtle );
+                if( support instanceof Promise || support.sha2_256 || support.ed25519 )
+                {
+                    this.builtinEvaluator.deferred = {
+                        support,
+                        sha2_256MinBytes: options.sha2_256MinBytes ?? DEFAULT_SHA2_256_MIN_BYTES,
+                        started
+                    };
+                }
             }
 
             this.resetLogs();
@@ -283,8 +285,9 @@ export class Machine {
                 }
                 result = end;
             }
-            // the result may hold constants still being computed
-            if(!( result instanceof CEKError )) await Promise.all( started );
+            // the result may hold constants still being computed. With nothing started, nothing
+            // here waits: the evaluation is over before evalAsync returns, as in a batch one by one
+            if( started.length > 0 && !( result instanceof CEKError ) ) await Promise.all( started );
             const budgetSpent = ExBudget.sub( budgetBefore, this.budget );
             return { result, budgetSpent, logs: this.logs };
         }
@@ -303,7 +306,12 @@ export class Machine {
         // a suspended evaluation keeps its machine: concurrent ones need one each
         const machine = idleMachines.pop() ?? new Machine( defaultV4Costs );
         machine.resetBudget( machine.initialBudget );
-        return machine.evalAsync( uplc, options ).finally( () => { idleMachines.push( machine ); });
+        const done = machine.evalAsync( uplc, options );
+        const release = () => { idleMachines.push( machine ); };
+        // done without waiting: the next call takes the same machine
+        if( machine.evaluatingAsync ) done.then( release, release );
+        else release();
+        return done;
     }
 
     static evalSimpleAsync( term: UPLCTerm | ToUPLC, options?: EvalAsyncOptions ): Promise<CEKValueObj>

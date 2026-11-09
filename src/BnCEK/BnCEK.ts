@@ -8,7 +8,7 @@ import { ExBudget } from "../Machine/ExBudget";
 import { PartialBuiltin } from "./PartialBuiltin";
 import { BlsG1, BlsG2, BlsResult, blake2b, blake2b_224, bls12_381_G1_add, bls12_381_G1_compress, bls12_381_G1_equal, bls12_381_G1_hashToGroup, bls12_381_G1_neg, bls12_381_G1_scalarMul, bls12_381_G1_uncompress, bls12_381_G2_add, bls12_381_G2_compress, bls12_381_G2_equal, bls12_381_G2_hashToGroup, bls12_381_G2_neg, bls12_381_G2_scalarMul, bls12_381_G2_uncompress, bls12_381_finalVerify, bls12_381_millerLoop, bls12_381_mulMlResult, isBlsG1, isBlsG2, isBlsResult, keccak_256, verifyEcdsaSecp256k1Signature, verifySchnorrSecp256k1Signature, ripemd160, sha2_256_sync, verifyEd25519Signature_sync, ed25519SignatureMayBeValid } from "@harmoniclabs/crypto";
 import { PendingConstValue } from "../CEKValue/PendingConstValue";
-import { sha2_256_webCrypto, SubtleCryptoLike, verifyEd25519_webCrypto } from "../Machine/webCrypto";
+import { sha2_256_deferred, verifyEd25519_deferred, WebCryptoSupport } from "../Machine/webCrypto";
 import { sha3_256 as noble_sha3_256 } from "@noble/hashes/sha3";
 import { CEKError } from "../CEKValue/CEKError";
 import { CEKConst } from "../CEKValue/CEKConst";
@@ -577,9 +577,8 @@ type ConstOrErr = CEKConst | CEKError;
 
 /** builtins `Machine.evalAsync` leaves to WebCrypto, while the machine goes on */
 export interface DeferredCrypto {
-    readonly subtle: SubtleCryptoLike;
-    readonly sha2_256: boolean;
-    readonly ed25519: boolean;
+    /** what the engine computes as the node does; a promise while that is being checked */
+    readonly support: WebCryptoSupport | Promise<WebCryptoSupport>;
     /** smaller inputs are hashed right away: WebCrypto costs more than it saves on them */
     readonly sha2_256MinBytes: number;
     /** settle when the results are written into their constants */
@@ -1184,9 +1183,10 @@ export class BnCEK
         });
 
         const deferred = this.deferred;
-        if( deferred !== undefined && deferred.sha2_256 && b.length >= deferred.sha2_256MinBytes )
+        if( deferred !== undefined && b.length >= deferred.sha2_256MinBytes )
         {
-            return deferredConst( deferred, constT.byteStr, sha2_256_webCrypto( deferred.subtle, b ), CEKConst.byteString );
+            const hash = sha2_256_deferred( deferred.support, b );
+            if( hash !== undefined ) return deferredConst( deferred, constT.byteStr, hash, CEKConst.byteString );
         }
 
         return CEKConst.byteString(
@@ -1293,10 +1293,11 @@ export class BnCEK
         });
 
         const deferred = this.deferred;
-        if( deferred !== undefined && deferred.ed25519 )
+        if( deferred !== undefined )
         {
             if( !ed25519SignatureMayBeValid( sBytes, kBytes ) ) return CEKConst.bool( false );
-            return deferredConst( deferred, constT.bool, verifyEd25519_webCrypto( deferred.subtle, kBytes, m, sBytes ), CEKConst.bool );
+            const valid = verifyEd25519_deferred( deferred.support, kBytes, m, sBytes );
+            if( valid !== undefined ) return deferredConst( deferred, constT.bool, valid, CEKConst.bool );
         }
 
         return constOrErr(() => CEKConst.bool( verifyEd25519Signature_sync( sBytes, m, kBytes ) ));

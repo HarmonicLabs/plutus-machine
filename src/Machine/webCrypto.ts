@@ -33,6 +33,7 @@ export function globalSubtle(): SubtleCryptoLike | undefined
 }
 
 const detected = new WeakMap<SubtleCryptoLike, Promise<WebCryptoSupport>>();
+const known = new WeakMap<SubtleCryptoLike, WebCryptoSupport>();
 
 /** checked once per `subtle` */
 export function webCryptoSupport( subtle: SubtleCryptoLike ): Promise<WebCryptoSupport>
@@ -41,10 +42,20 @@ export function webCryptoSupport( subtle: SubtleCryptoLike ): Promise<WebCryptoS
     if( support === undefined )
     {
         support = Promise.all([ detectSha2_256( subtle ), detectEd25519( subtle ) ])
-            .then(([ sha2_256, ed25519 ]) => ({ subtle, sha2_256, ed25519 }));
+            .then(([ sha2_256, ed25519 ]) => {
+                const result = { subtle, sha2_256, ed25519 };
+                known.set( subtle, result );
+                return result;
+            });
         detected.set( subtle, support );
     }
     return support;
+}
+
+/** what `webCryptoSupport` found, once it has settled */
+export function knownWebCryptoSupport( subtle: SubtleCryptoLike ): WebCryptoSupport | undefined
+{
+    return known.get( subtle );
 }
 
 async function detectSha2_256( subtle: SubtleCryptoLike ): Promise<boolean>
@@ -124,4 +135,34 @@ export function verifyEd25519_webCrypto(
     return subtle.importKey( "raw", key, ED25519, false, [ "verify" ] )
         .then( imported => subtle.verify( ED25519, imported, signature, message ) )
         .catch( () => verifyEd25519Signature_sync( signature, message, key ) );
+}
+
+/**
+ * The hash, computed by the engine; while the engine is being checked, by the engine
+ * or in JavaScript after the check. `undefined`: the engine was checked and does not
+ * hash as the node does, so hash right away.
+ */
+export function sha2_256_deferred(
+    support: WebCryptoSupport | Promise<WebCryptoSupport>,
+    bytes: Uint8Array
+): Promise<Uint8Array> | undefined
+{
+    if( support instanceof Promise ) return support.then( s =>
+        s.sha2_256 ? sha2_256_webCrypto( s.subtle, bytes ) : new Uint8Array( sha2_256_sync( bytes ) )
+    );
+    return support.sha2_256 ? sha2_256_webCrypto( support.subtle, bytes ) : undefined;
+}
+
+/** as `sha2_256_deferred`, for `verifyEd25519_webCrypto` */
+export function verifyEd25519_deferred(
+    support: WebCryptoSupport | Promise<WebCryptoSupport>,
+    key: Uint8Array,
+    message: Uint8Array,
+    signature: Uint8Array
+): Promise<boolean> | undefined
+{
+    if( support instanceof Promise ) return support.then( s =>
+        s.ed25519 ? verifyEd25519_webCrypto( s.subtle, key, message, signature ) : verifyEd25519Signature_sync( signature, message, key )
+    );
+    return support.ed25519 ? verifyEd25519_webCrypto( support.subtle, key, message, signature ) : undefined;
 }

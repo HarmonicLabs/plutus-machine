@@ -2,6 +2,8 @@ import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { parseUPLCText, showUPLC, UPLCTermObj } from "@harmoniclabs/uplc";
 import { defaultV4Costs } from "@harmoniclabs/cardano-costmodels-ts";
+import { signEd25519_sync } from "@harmoniclabs/crypto";
+import { fromHex, toHex } from "@harmoniclabs/uint8array-utils";
 import { Machine, EvalResult } from "../Machine";
 import { ExBudget } from "../ExBudget";
 import { SubtleCryptoLike, webCryptoSupport } from "../webCrypto";
@@ -17,16 +19,20 @@ function controlledSubtle()
     const held: ( () => void )[] = [];
     let holding = false;
     const calls = { digest: 0, verify: 0 };
+    const importedKeys: string[] = [];
     const answer = <T>( result: Promise<T> ): Promise<T> =>
         holding ? new Promise<T>( resolve => { held.push( () => resolve( result ) ); }) : result;
     const subtle: SubtleCryptoLike = {
         digest: ( algorithm, data ) => { calls.digest++; return answer( realSubtle.digest( algorithm, data ) ); },
-        importKey: ( ...args ) => realSubtle.importKey( ...args ),
+        importKey: ( format, keyData, ...rest ) => { importedKeys.push( toHex( keyData ) ); return realSubtle.importKey( format, keyData, ...rest ); },
         verify: ( algorithm, key, signature, data ) => { calls.verify++; return answer( realSubtle.verify( algorithm, key, signature, data ) ); },
     };
     return {
         subtle,
         calls,
+        importedKeys,
+        /** holds the answers from now on, those of the check of the engine included */
+        hold() { holding = true; },
         /** detection done: count and hold from now on */
         async ready( hold: boolean ) {
             await webCryptoSupport( subtle );
@@ -256,6 +262,62 @@ describe("evalAsync", () => {
         c.release();
         await done;
         expect( asynchronous.states ).toEqual( synchronous.states );
+    });
+
+    test.each([ "checked", "not checked yet" ])("a batch launched at once evaluates each program before decoding the next (engine %s)", async engine => {
+        const c = controlledSubtle();
+        if( engine === "checked" ) await c.ready( false );
+        const events: string[] = [];
+        const batch = [ 0, 1, 2 ].map( i => {
+            events.push( `decode ${i}` );
+            const term = parseUPLCText( trace( `program ${i}` ) ) as UPLCTermObj;
+            const machine = new Machine( defaultV4Costs );
+            let first = true;
+            machine.setStepHook( () => { if( first ) { first = false; events.push( `evaluate ${i}` ); } });
+            return machine.evalAsync( term, { subtle: c.subtle } );
+        });
+        await Promise.all( batch );
+        expect( events ).toEqual([ "decode 0", "evaluate 0", "decode 1", "evaluate 1", "decode 2", "evaluate 2" ]);
+    });
+
+    test("the machine runs while the engine is checked; only a result started meanwhile waits for the check", async () => {
+        const message = fromHex( "0102" );
+        const { pubKey, signature } = signEd25519_sync( message, new Uint8Array( 32 ).fill( 7 ) );
+        const signed = { pk: toHex( pubKey ), msg: "0102", sig: toHex( signature ) };
+        const program = `[ (lam v [ (lam u v) ${trace( "stepping" )} ]) ${verify( signed )} ]`;
+        // a new engine: its check starts with this evaluation, and its answers are held
+        const c = controlledSubtle();
+        c.hold();
+        const machine = new Machine( defaultV4Costs );
+        let finished = false;
+        const done = machine.evalAsync( parseUPLCText( program ) as UPLCTermObj, { subtle: c.subtle } ).then( r => { finished = true; return r; });
+        await settle();
+        expect( machine.currentLogs ).toEqual([ "stepping" ]);
+        expect( finished ).toBe( false );
+        c.release();
+        expectSameEvaluation( await done, new Machine( defaultV4Costs ).eval( parseUPLCText( program ) as UPLCTermObj ) );
+        expect( show( await done ) ).toBe( "(con boolean True)" );
+        // the engine passed its check, then verified the signature
+        expect( c.importedKeys ).toContain( signed.pk );
+    });
+
+    test("Machine.evalAsync reuses one machine for evaluations that do not wait", async () => {
+        const c = controlledSubtle();
+        await c.ready( false );
+        const machines = new Set<Machine>();
+        const resetBudget = Machine.prototype.resetBudget;
+        const spy = jest.spyOn( Machine.prototype, "resetBudget" ).mockImplementation( function( this: Machine, ...args ) {
+            machines.add( this );
+            return resetBudget.apply( this, args );
+        });
+        try {
+            const programs = Array.from({ length: 20 }, ( _, i ) => `(con integer ${i})` );
+            await Promise.all( programs.map( src => Machine.evalAsync( parseUPLCText( src ), { subtle: c.subtle } ) ) );
+        }
+        finally {
+            spy.mockRestore();
+        }
+        expect( machines.size ).toBe( 1 );
     });
 
     test("one evaluation at a time per machine; concurrent ones on Machine.evalAsync", async () => {
