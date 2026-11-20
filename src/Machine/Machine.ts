@@ -7,7 +7,12 @@ import { MachineStateTag } from "../_internal/MachineStateTag";
 import { MachineContextTag } from "../_internal/MachineContextTag";
 import { CEKEnv, extendEnv, lookupEnv } from "../CEKEnv";
 import { costModelToMachineCosts, MachineCosts } from "./MachineCosts";
-import { costModelV4ToBuiltinCosts } from "./BuiltinCosts";
+import { costModelV4ToBuiltinCosts, LATEST_PROTOCOL_VERSION } from "./BuiltinCosts";
+
+export interface MachineOptions {
+    /** the protocol version (major) the costs are computed for; the latest one the package knows when left out */
+    majorProtocolVersion?: number;
+}
 import { UPLCTermTag } from "@harmoniclabs/uplc/dist/UPLCTerm/UPLCTermTag";
 import { FrameAwaitArg, FrameAwaitFunTerm, FrameAwaitFunValue, FrameCases, FrameConstr, MachineContext } from "./MachineContext";
 import { BnCEK, PartialBuiltin } from "../BnCEK";
@@ -125,9 +130,15 @@ export class Machine {
     private builtinEvaluator: BnCEK;
     private logs: string[] = [];
 
+    /**
+     * @param options.majorProtocolVersion the protocol version whose cost functions the
+     * machine has: the numbers of a cost model do not say it, and some functions changed
+     * with a version and not with the numbers (see `LATEST_PROTOCOL_VERSION`, the default)
+     */
     constructor(
         costmodel: AnyV1CostModel | AnyV2CostModel | AnyV3CostModel | AnyV4CostModel = defaultV4Costs,
-        initialBudget?: ExBudget
+        initialBudget?: ExBudget,
+        options: MachineOptions = {}
     ) {
         const unlimitedBudget = ExBudget.unlimited();
         const initial = initialBudget ?? unlimitedBudget;
@@ -155,7 +166,8 @@ export class Machine {
         this.logs = [];
 
         this.builtinEvaluator = new BnCEK(
-            costModelV4ToBuiltinCosts(this.builtinCosts),
+            // a V1 or V2 model keeps the cost shapes those versions have
+            costModelV4ToBuiltinCosts(this.builtinCosts, !(isV4 || isV3), options.majorProtocolVersion ?? LATEST_PROTOCOL_VERSION),
             this.budget,
             this.logs
         );
@@ -239,7 +251,7 @@ export class Machine {
         this.resetLogs();
         const budgetBefore = this.budget.clone();
         const result = this.run( term );
-        const budgetSpent = ExBudget.sub( budgetBefore, this.budget );
+        const budgetSpent = ExBudget.spent( budgetBefore, this.budget );
         return { result, budgetSpent, logs: this.logs };
     }
 
@@ -288,7 +300,7 @@ export class Machine {
             // the result may hold constants still being computed. With nothing started, nothing
             // here waits: the evaluation is over before evalAsync returns, as in a batch one by one
             if( started.length > 0 && !( result instanceof CEKError ) ) await Promise.all( started );
-            const budgetSpent = ExBudget.sub( budgetBefore, this.budget );
+            const budgetSpent = ExBudget.spent( budgetBefore, this.budget );
             return { result, budgetSpent, logs: this.logs };
         }
         finally {

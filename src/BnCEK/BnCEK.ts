@@ -2,6 +2,7 @@ import { log2 } from "@harmoniclabs/bigint-utils";
 
 import { concatUint8Array, fromHex, fromUtf8, toHex, toUtf8 } from "@harmoniclabs/uint8array-utils";
 import { isData, Data, DataConstr, DataMap, DataList, DataI, DataB, DataPair, dataToCbor, eqData } from "@harmoniclabs/plutus-data";
+import { serialiseData as serialiseDataExact } from "./impl/serialiseData";
 import { ConstValue, LedgerValue, Pair, isConstValueInt, UPLCTerm, ConstType, constTypeEq, constT, ConstTyTag, UPLCBuiltinTag, constPairTypeUtils, constListTypeUtils, constArrayTypeUtils, constTypeToStirng, isPair } from "@harmoniclabs/uplc";
 import { BuiltinCostsOf } from "../Machine/BuiltinCosts/BuiltinCosts";
 import { ExBudget } from "../Machine/ExBudget";
@@ -21,36 +22,101 @@ import { findFirstSetBit } from "./impl/findFirstSetBit";
 import { readBit } from "./impl/readBit";
 import { writeBit } from "./impl/writeBit";
 import { isObject } from "@harmoniclabs/obj-utils";
-import { bls12_381 as noble_bls12_381 } from "@noble/curves/bls12-381";
+
+// ---- sizes --------------------------------------------------------------------------------
+//
+// What a builtin costs depends on the size of its arguments, and the size of a value is the
+// one Plutus gives it (`ExMemoryUsage`): a number of 64-bit words, not of bytes.
+//
+//      integer         1 for zero, else floor( log2 |n| ) / 64 + 1
+//      byte string     ( length - 1 ) quot 8 + 1, so that the empty one counts 1 as well
+//      string          one per character (code point)
+//      bool, unit      1
+//      pair            1 + the two sizes
+//      list            the sum of the sizes of its elements
+//      data            4 per node, plus the size of the integer or of the bytes of a leaf
+//      G1, G2, Miller loop result      18, 36, 72
+//
+// Counting bytes instead made every cost that grows with a size grow eight times as fast, and
+// moved the costs that compare two sizes (division is cheaper when the dividend is the smaller
+// of the two) to the wrong side.
+
+const _64n = BigInt( 64 );
 
 function intToSize( n: bigint ): bigint
 {
     n = BigInt( n );
-    if ( n === _0n ) return BigInt( 1 );
-
-    // same as `intToSize( -n - BigInt( 1 ) )` but inlined
-    if( n  < _0n ) return ( log2( ( -n - BigInt( 1 ) ) << BigInt( 1 ) ) / BigInt( 8 )) + BigInt( 1 ) ;
-
-    return ( log2( n << BigInt( 1 ) ) / BigInt( 8 )) + BigInt( 1 );
+    if( n === _0n ) return BigInt( 1 );
+    return ( log2( n < _0n ? -n : n ) / _64n ) + BigInt( 1 );
 }
 
 function bsToSize( bs: Uint8Array ): bigint
 {
     const len = bs.length;
-    return len === 0 ?
-        // TODO: Bug in cardano-node; to fix next hard fork
-        BigInt(1) :
-        BigInt( len );
+    // the empty byte string counts one word, like the ones of 1 to 8 bytes
+    return len === 0 ? BigInt( 1 ) : BigInt( ( ( len - 1 ) >>> 3 ) + 1 );
 }
 
 function strToSize( str: string ): bigint
 {
-    return bsToSize( fromUtf8( str ) )
+    // one per character: a string iterates by code point
+    let chars = 0;
+    for( const _char of str ) chars++;
+    return BigInt( chars );
 };
 
-const BLS_G1_SIZE: bigint = BigInt( 48 );
-const BLS_G2_SIZE: bigint = BigInt( 96 );
-const BLS_ML_RESULT_SIZE: bigint = BigInt( 192 );
+/**
+ * the size of an integer that says how many bytes a result takes (the width of
+ * `integerToByteString`, the length of `replicateByte`): the 8-byte words those bytes fill,
+ * and not the size of the number itself
+ */
+function byteCountToSize( n: bigint ): bigint
+{
+    return n <= _0n ? _0n : ( ( n - BigInt( 1 ) ) / BigInt( 8 ) ) + BigInt( 1 );
+}
+
+/** the largest cost there is: costs are 64-bit signed integers that stop growing there */
+const MAX_COST = ( BigInt( 1 ) << BigInt( 63 ) ) - BigInt( 1 );
+
+/**
+ * the size of an integer that says how much work there is (the elements `dropList` drops,
+ * the bits a shift or a rotation moves by): its absolute value, and not the size of the number
+ */
+function intToLiteralSize( n: bigint ): bigint
+{
+    const abs = n < _0n ? -n : n;
+    return abs > MAX_COST ? MAX_COST : abs;
+}
+
+/** a cost never goes above `MAX_COST` */
+function saturated( cost: bigint ): bigint
+{
+    return cost > MAX_COST ? MAX_COST : cost;
+}
+
+/** the nodes of a data value: what `unValueData` is costed on */
+function dataNodeCount( data: Data ): bigint
+{
+    const stack: Data[] = [ data ];
+    let nodes = 0;
+    while( stack.length > 0 )
+    {
+        const top = stack.pop()!;
+        nodes++;
+        if( top instanceof DataConstr ) for( const field of top.fields ) stack.push( field );
+        else if( top instanceof DataMap ) for( const entry of top.map ) { stack.push( entry.fst ); stack.push( entry.snd ); }
+        else if( top instanceof DataList ) for( const elem of top.list ) stack.push( elem );
+    }
+    return BigInt( nodes );
+}
+
+/** what a compressed point takes in a byte string: not its size for costing */
+const BLS_G1_COMPRESSED_BYTES = 48;
+const BLS_G2_COMPRESSED_BYTES = 96;
+
+const BLS_G1_SIZE: bigint = BigInt( 18 );
+const BLS_G2_SIZE: bigint = BigInt( 36 );
+const BLS_ML_RESULT_SIZE: bigint = BigInt( 72 );
 const BOOL_SIZE: bigint = BigInt( 1 );
 const ANY_SIZE: bigint = BigInt( 1 );
 
@@ -66,6 +132,10 @@ function constValueToSize( v: ConstValue ): bigint
     if( Array.isArray( v ) ) return listToSize( v );
 
     if( isPair( v ) ) return pairToSize( v );
+
+    if( isBlsG1( v ) ) return BLS_G1_SIZE;
+    if( isBlsG2( v ) ) return BLS_G2_SIZE;
+    if( isBlsResult( v ) ) return BLS_ML_RESULT_SIZE;
 
     console.warn("unexpected 'constValueToSize'; exec costs evaluation might be inaccurate");
     return ANY_SIZE;
@@ -101,7 +171,7 @@ function ledgerValueMaxDepth( v: LedgerValue ): bigint
 
 function pairToSize( pairValue: Pair<ConstValue,ConstValue> ): bigint
 {
-    return constValueToSize( pairValue.fst ) + constValueToSize( pairValue.snd )
+    return BigInt( 1 ) + constValueToSize( pairValue.fst ) + constValueToSize( pairValue.snd )
 }
 
 function dataToSize( data: Data ): bigint
@@ -509,6 +579,10 @@ function modInverse( a: bigint, m: bigint ): bigint
 
 // bls12-381 curve order r:
 const BLS12_381_R = BigInt( "0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001" );
+
+/** the scalars of a multi-scalar multiplication are 4096-bit signed integers */
+const MSM_SCALAR_UB = ( BigInt(1) << BigInt(4095) ) - BigInt(1);
+const MSM_SCALAR_LB = -( BigInt(1) << BigInt(4095) );
 
 function blsReduceScalar( s: bigint ): bigint
 {
@@ -996,19 +1070,19 @@ export class BnCEK
 
         const j = endIdx > maxIdx ? maxIdx : endIdx;
 
-        if( j < i ) return CEKConst.byteString( new Uint8Array([]) );
-
-
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.sliceByteString );
                 
         const sidx = intToSize( idx );
         const slength = intToSize( length );
         const sbs = bsToSize( _bs );
         
+        // paid before looking at the result: an empty slice costs what any slice of these bytes does
         this.machineBudget.sub({
             mem: f.mem.at( sidx, slength, sbs ),
             cpu: f.cpu.at( sidx, slength, sbs )
         });
+
+        if( j < i ) return CEKConst.byteString( new Uint8Array([]) );
 
         return CEKConst.byteString(
                 Uint8Array.prototype.slice.call(
@@ -2066,7 +2140,8 @@ export class BnCEK
             cpu: f.cpu.at( sData )
         });
 
-        return CEKConst.byteString( dataToCbor( d ) );
+        // the ledger's own encoding: a script hashes these bytes
+        return CEKConst.byteString( serialiseDataExact( d ) );
     } 
     verifyEcdsaSecp256k1Signature( a: CEKValue, b: CEKValue, c: CEKValue ): ConstOrErr
     {
@@ -2260,7 +2335,7 @@ export class BnCEK
         );
 
         const bytes = bs;
-        if( bytes.length !== Number( BLS_G1_SIZE ) )
+        if( bytes.length !== BLS_G1_COMPRESSED_BYTES )
         {
             return new CEKError(
                 "bls12_381_G1_uncompress :: invalid bytes length",
@@ -2407,7 +2482,7 @@ export class BnCEK
         );
 
         const bytes = bs;
-        if( bytes.length !== Number( BLS_G2_SIZE ) )
+        if( bytes.length !== BLS_G2_COMPRESSED_BYTES )
         {
             return new CEKError(
                 "bls12_381_G2_uncompress :: invalid bytes length",
@@ -2553,7 +2628,8 @@ export class BnCEK
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.integerToByteString );
         const bSize = BOOL_SIZE;
-        const nSize = intToSize( size );
+        // the width is costed as the words of that many bytes (0 for "as many as needed")
+        const nSize = byteCountToSize( size );
         const nInt = intToSize( integer );
         this.machineBudget.sub({
             mem: f.mem.at( bSize, nSize, nInt ),
@@ -2604,6 +2680,10 @@ export class BnCEK
             { shouldExtend, b, c }
         );
 
+        // costed on the two arguments as given, not on what padding or truncating makes of them
+        const bs1Size = bsToSize( bs1 );
+        const bs2Size = bsToSize( bs2 );
+
         let len = 0;
 
         if( shouldExtend )
@@ -2627,8 +2707,6 @@ export class BnCEK
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.andByteString );
         const shouldExtendSize = BOOL_SIZE;
-        const bs1Size = bsToSize( bs1 );
-        const bs2Size = bsToSize( bs2 );
         this.machineBudget.sub({
             mem: f.mem.at( shouldExtendSize, bs1Size, bs2Size ),
             cpu: f.cpu.at( shouldExtendSize, bs1Size, bs2Size ) 
@@ -2654,6 +2732,10 @@ export class BnCEK
             { shouldExtend, b, c }
         );
 
+        // costed on the two arguments as given, not on what padding or truncating makes of them
+        const bs1Size = bsToSize( bs1 );
+        const bs2Size = bsToSize( bs2 );
+
         let len = 0;
 
         if( shouldExtend )
@@ -2677,8 +2759,6 @@ export class BnCEK
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.orByteString );
         const shouldExtendSize = BOOL_SIZE;
-        const bs1Size = bsToSize( bs1 );
-        const bs2Size = bsToSize( bs2 );
         this.machineBudget.sub({
             mem: f.mem.at( shouldExtendSize, bs1Size, bs2Size ),
             cpu: f.cpu.at( shouldExtendSize, bs1Size, bs2Size ) 
@@ -2704,13 +2784,18 @@ export class BnCEK
             { shouldExtend, b, c }
         );
 
+        // costed on the two arguments as given, not on what padding or truncating makes of them
+        const bs1Size = bsToSize( bs1 );
+        const bs2Size = bsToSize( bs2 );
+
         let len = 0;
 
         if( shouldExtend )
         {
             len = Math.max( bs1.length, bs2.length );
-            bs1 = bitwiseExtend( bs1, len, true );
-            bs2 = bitwiseExtend( bs2, len, true );
+            // the shorter one is padded with zero bytes: what a xor leaves alone
+            bs1 = bitwiseExtend( bs1, len, false );
+            bs2 = bitwiseExtend( bs2, len, false );
         }
         else // should truncate
         {
@@ -2727,8 +2812,6 @@ export class BnCEK
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.xorByteString );
         const shouldExtendSize = BOOL_SIZE;
-        const bs1Size = bsToSize( bs1 );
-        const bs2Size = bsToSize( bs2 );
         this.machineBudget.sub({
             mem: f.mem.at( shouldExtendSize, bs1Size, bs2Size ),
             cpu: f.cpu.at( shouldExtendSize, bs1Size, bs2Size ) 
@@ -2822,7 +2905,8 @@ export class BnCEK
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.writeBits );
         const bsSize = bsToSize( bs );
-        const idxsSize = listToSize( idxs );
+        // costed on the number of positions written
+        const idxsSize = BigInt( idxs.length );
         const bitSize = BOOL_SIZE;
         this.machineBudget.sub({
             mem: f.mem.at( bsSize, idxsSize, bitSize ),
@@ -2857,7 +2941,7 @@ export class BnCEK
         const result = new Uint8Array( Number( len ) ).fill( Number( byte ) );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.replicateByte );
-        const lenSize = intToSize( len );
+        const lenSize = byteCountToSize( len );
         const byteSize = intToSize( byte );
         this.machineBudget.sub({
             mem: f.mem.at( lenSize, byteSize ),
@@ -2883,7 +2967,8 @@ export class BnCEK
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.shiftByteString );
         const bsSize = bsToSize( bs );
-        const kSize = intToSize( k );
+        // costed on the number of bits moved, not on the size of that number
+        const kSize = intToLiteralSize( k );
         this.machineBudget.sub({
             mem: f.mem.at( bsSize, kSize ),
             cpu: f.cpu.at( bsSize, kSize )
@@ -2904,11 +2989,12 @@ export class BnCEK
             { bs, _k }
         );
 
-        const result = rotateU8Arr( bs, Number( k ) );
+        const result = rotateU8Arr( bs, k );
 
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.rotateByteString );
         const bsSize = bsToSize( bs );
-        const kSize = intToSize( k );
+        // costed on the number of bits moved, not on the size of that number
+        const kSize = intToLiteralSize( k );
         this.machineBudget.sub({
             mem: f.mem.at( bsSize, kSize ),
             cpu: f.cpu.at( bsSize, kSize )
@@ -3008,9 +3094,10 @@ export class BnCEK
         if( n === undefined || list === undefined )
             return new CEKError( "dropList :: invalid arguments", { _n, _list } );
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.dropList );
-        const sn = intToSize( n );
+        // costed on the number it is asked to drop, whatever the list holds
+        const sn = intToLiteralSize( n );
         const sl = listToSize( list );
-        this.machineBudget.sub({ mem: f.mem.at( sn, sl ), cpu: f.cpu.at( sn, sl ) });
+        this.machineBudget.sub({ mem: saturated( f.mem.at( sn, sl ) ), cpu: saturated( f.cpu.at( sn, sl ) ) });
         if( n <= _bigintZero ) return new CEKConst( (_list as CEKConst).type, list as any );
         const dropped = list.slice( Number( n < BigInt(list.length) ? n : BigInt(list.length) ) );
         return new CEKConst( (_list as CEKConst).type, dropped as any );
@@ -3030,7 +3117,7 @@ export class BnCEK
         const list = getList( _list );
         if( list === undefined ) return new CEKError( "listToArray :: not a list", { _list } );
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.listToArray );
-        const sl = listToSize( list );
+        const sl = BigInt( list.length );
         this.machineBudget.sub({ mem: f.mem.at( sl ), cpu: f.cpu.at( sl ) });
         const listType = (_list as CEKConst).type;
         const elemType = constListTypeUtils.getTypeArgument( listType as any );
@@ -3051,6 +3138,18 @@ export class BnCEK
         return new CEKConst( elemType, arr[ Number( idx ) ] as any );
     }
 
+    // Multi-scalar multiplication (CIP-133): the sum of `scalars[i] * points[i]` over the
+    // pairs the two lists have in common; entries one list has beyond the other are
+    // ignored, and no pair at all gives the zero of the group.
+    //
+    // The points of this machine are the ones of `@harmoniclabs/crypto` (`BlsG1`, `BlsG2`):
+    // every other BLS builtin builds, checks and compares points of those classes, so the
+    // sum is built with the same operations. (A point class of another copy of the curve
+    // library refuses these points, and its results are refused by the other builtins.)
+    //
+    // Cost: linear in the number of scalars given, whatever the number of points
+    // (the budgets of the conformance cases with lists of different lengths).
+
     bls12_381_G1_multiScalarMul( _scalars: CEKValue, _points: CEKValue ): ConstOrErr
     {
         const scalars = getList( _scalars );
@@ -3058,27 +3157,22 @@ export class BnCEK
         if( scalars === undefined || points === undefined )
             return new CEKError( "bls12_381_G1_multiScalarMul :: invalid arguments" );
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.bls12_381_G1_multiScalarMul );
-        const sLen = BigInt( Math.min( scalars.length, points.length ) );
-        this.machineBudget.sub({ mem: f.mem.at( sLen, sLen ), cpu: f.cpu.at( sLen, sLen ) });
+        const nScalars = BigInt( scalars.length );
+        const nPoints  = BigInt( points.length );
+        this.machineBudget.sub({ mem: f.mem.at( nScalars, nPoints ), cpu: f.cpu.at( nScalars, nPoints ) });
         const len = Math.min( scalars.length, points.length );
-        const G1 = noble_bls12_381.G1.ProjectivePoint;
-        if( len === 0 ) return new CEKConst( constT.bls12_381_G1_element, G1.ZERO );
-        const MSM_UB = (BigInt(1) << BigInt(4095)) - BigInt(1);
-        const MSM_LB = -(BigInt(1) << BigInt(4095));
-        const scalarVals: bigint[] = [];
-        const pointVals: any[] = [];
+        let sum: BlsG1 = BlsG1.ZERO;
         for( let i = 0; i < len; i++ )
         {
             const s = scalars[i] as bigint;
-            if( s > MSM_UB || s < MSM_LB )
+            if( typeof s !== "bigint" ) return new CEKError( "bls12_381_G1_multiScalarMul :: not an integer" );
+            if( s > MSM_SCALAR_UB || s < MSM_SCALAR_LB )
                 return new CEKError( "bls12_381_G1_multiScalarMul :: scalar out of bounds" );
-            scalarVals.push( blsReduceScalar( s ) );
             const p = points[i] as BlsG1;
             if( !isBlsG1( p ) ) return new CEKError( "bls12_381_G1_multiScalarMul :: not a G1 element" );
-            pointVals.push( p );
+            sum = bls12_381_G1_add( sum, bls12_381_G1_scalarMul( blsReduceScalar( s ), p ) );
         }
-        const result = G1.msm( pointVals, scalarVals );
-        return new CEKConst( constT.bls12_381_G1_element, result );
+        return new CEKConst( constT.bls12_381_G1_element, sum );
     }
 
     bls12_381_G2_multiScalarMul( _scalars: CEKValue, _points: CEKValue ): ConstOrErr
@@ -3088,27 +3182,22 @@ export class BnCEK
         if( scalars === undefined || points === undefined )
             return new CEKError( "bls12_381_G2_multiScalarMul :: invalid arguments" );
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.bls12_381_G2_multiScalarMul );
-        const sLen = BigInt( Math.min( scalars.length, points.length ) );
-        this.machineBudget.sub({ mem: f.mem.at( sLen, sLen ), cpu: f.cpu.at( sLen, sLen ) });
+        const nScalars = BigInt( scalars.length );
+        const nPoints  = BigInt( points.length );
+        this.machineBudget.sub({ mem: f.mem.at( nScalars, nPoints ), cpu: f.cpu.at( nScalars, nPoints ) });
         const len = Math.min( scalars.length, points.length );
-        const G2 = noble_bls12_381.G2.ProjectivePoint;
-        if( len === 0 ) return new CEKConst( constT.bls12_381_G2_element, G2.ZERO );
-        const MSM_UB = (BigInt(1) << BigInt(4095)) - BigInt(1);
-        const MSM_LB = -(BigInt(1) << BigInt(4095));
-        const scalarVals: bigint[] = [];
-        const pointVals: any[] = [];
+        let sum: BlsG2 = BlsG2.ZERO;
         for( let i = 0; i < len; i++ )
         {
             const s = scalars[i] as bigint;
-            if( s > MSM_UB || s < MSM_LB )
+            if( typeof s !== "bigint" ) return new CEKError( "bls12_381_G2_multiScalarMul :: not an integer" );
+            if( s > MSM_SCALAR_UB || s < MSM_SCALAR_LB )
                 return new CEKError( "bls12_381_G2_multiScalarMul :: scalar out of bounds" );
-            scalarVals.push( blsReduceScalar( s ) );
             const p = points[i] as BlsG2;
             if( !isBlsG2( p ) ) return new CEKError( "bls12_381_G2_multiScalarMul :: not a G2 element" );
-            pointVals.push( p );
+            sum = bls12_381_G2_add( sum, bls12_381_G2_scalarMul( blsReduceScalar( s ), p ) );
         }
-        const result = G2.msm( pointVals, scalarVals );
-        return new CEKConst( constT.bls12_381_G2_element, result );
+        return new CEKConst( constT.bls12_381_G2_element, sum );
     }
 
     insertCoin( _cs: CEKValue, _tn: CEKValue, _qty: CEKValue, _v: CEKValue ): ConstOrErr
@@ -3211,7 +3300,7 @@ export class BnCEK
         if( d === undefined || !( d instanceof DataMap ) )
             return new CEKError( "unValueData :: expected map data" );
         const f = this.getBuiltinCostFunc( UPLCBuiltinTag.unValueData );
-        const sd = dataToSize( d );
+        const sd = dataNodeCount( d );
         this.machineBudget.sub({ mem: f.mem.at( sd ), cpu: f.cpu.at( sd ) });
         const MAX_KEY = 32;
         const result: LedgerValue = [];

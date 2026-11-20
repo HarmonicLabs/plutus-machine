@@ -53,6 +53,21 @@ export class ExBudget
         });
     }
 
+    /**
+     * What was spent between two readings of a budget. Costs are 64-bit signed integers that
+     * stop growing at the largest one, and so does their sum: a builtin whose cost is beyond
+     * any budget leaves the count there, not above.
+     */
+    static spent( before: ExBudget, after: ExBudget ): ExBudget
+    {
+        const cpu = before.cpu - after.cpu;
+        const mem = before.mem - after.mem;
+        return new ExBudget({
+            cpu: cpu > I64_MAX ? I64_MAX : cpu,
+            mem: mem > I64_MAX ? I64_MAX : mem
+        });
+    }
+
     static get default(): ExBudget
     {
         return new ExBudget({

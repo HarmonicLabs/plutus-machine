@@ -39,13 +39,12 @@
     "@harmoniclabs/crypto": "^0.3.2",
     "@harmoniclabs/obj-utils": "^1.0.0",
     "@harmoniclabs/uint8array-utils": "^1.0.3",
-    "@noble/curves": "1.9.7",
     "@noble/hashes": "1.7.2"
   },
   "peerDependencies": {
     "@harmoniclabs/cbor": "^2.0.1",
     "@harmoniclabs/plutus-data": "^2.0.1",
-    "@harmoniclabs/uplc": "^2.0.6"
+    "@harmoniclabs/uplc": "^2.0.8"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.18.6",

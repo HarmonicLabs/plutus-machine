@@ -293,7 +293,7 @@ export class ConstYOrLinearZ extends BaseLinear
 
 /**
  * function in the form of
- * c00 + c10*x + c01*y + c20*x*x + c11*x*y + c02 * y
+ * c00 + c10*x + c01*y + c20*x*x + c11*x*y + c02*y*y
  */
 class BaseDoubleQuadratic
 {
@@ -346,7 +346,46 @@ export class ConstMinOrQuadratic2InXY extends BaseDoubleQuadratic
     {
         if( x < y ) return this.constant;
         const { c00, c01, c02, c10, c11, c20, minimum } = this;
-        const real = c00 + c10*x + c01*y + c20*x*x + c11*x*y + c02*y;
+        // quadratic in both: the last term is c02 * y², as the name of the coefficient says
+        const real = c00 + c10*x + c01*y + c20*x*x + c11*x*y + c02*y*y;
+        return real < minimum ? minimum : real;
+    };
+}
+
+/**
+ * `above_and_below_diagonal` over a quadratic in both sizes: the quadratic of the LARGER size
+ * (as x) and the smaller one (as y), never below its minimum.
+ *
+ * From protocol version 11 this is what `divideInteger` and `modInteger` cost (in Plutus V1
+ * and V2 too, where the quadratic has only its constant and its product term). Before, a first
+ * argument smaller than the second cost a constant (`ConstMinOrQuadratic2InXY`), which
+ * `quotientInteger` and `remainderInteger` still do. A machine that keeps the constant gives
+ * `x mod m`, for an x of fewer words than m, some 55,000 steps less than a node charges:
+ * a transaction that declares the result is refused as over its budget.
+ */
+export class Quadratic2InMaxMin extends BaseDoubleQuadratic
+    implements CostFunc<2>
+{
+    readonly minimum: bigint;
+    constructor(
+        minimum: bigint,
+        c00: bigint,
+        c01: bigint,
+        c02: bigint,
+        c10: bigint,
+        c11: bigint,
+        c20: bigint
+    )
+    {
+        super( c00, c01, c02, c10, c11, c20 );
+        defineReadOnlyProperty( this, "minimum", BigInt( minimum ) );
+    }
+    at(x: bigint, y: bigint)
+    {
+        const hi = x > y ? x : y;
+        const lo = x > y ? y : x;
+        const { c00, c01, c02, c10, c11, c20, minimum } = this;
+        const real = c00 + c10*hi + c01*lo + c20*hi*hi + c11*hi*lo + c02*lo*lo;
         return real < minimum ? minimum : real;
     };
 }

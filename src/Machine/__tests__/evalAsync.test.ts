@@ -146,7 +146,7 @@ describe("evalAsync", () => {
         expect( c.heldCount ).toBe( 2 );
         c.release();
         expectSameEvaluation( await done, Machine.eval( parseUPLCText( program ) ) );
-        expect( show( await done ) ).toBe( "(con boolean True)" );
+        expect( show( await done ) ).toBe( "(con bool True)" );
     });
 
     test.each([
@@ -196,7 +196,7 @@ describe("evalAsync", () => {
             const asynchronous = await Machine.evalAsync( parseUPLCText( src ), { subtle: lying, sha2_256MinBytes: 0 } );
             expectSameEvaluation( asynchronous, Machine.eval( parseUPLCText( src ) ) );
         }
-        expect( show( await Machine.evalAsync( parseUPLCText( verify( MIXED_ORDER_KEY ) ), { subtle: lying } ) ) ).toBe( "(con boolean False)" );
+        expect( show( await Machine.evalAsync( parseUPLCText( verify( MIXED_ORDER_KEY ) ), { subtle: lying } ) ) ).toBe( "(con bool False)" );
     });
 
     test("computes everything in JavaScript with subtle: null", async () => {
@@ -296,7 +296,7 @@ describe("evalAsync", () => {
         expect( finished ).toBe( false );
         c.release();
         expectSameEvaluation( await done, new Machine( defaultV4Costs ).eval( parseUPLCText( program ) as UPLCTermObj ) );
-        expect( show( await done ) ).toBe( "(con boolean True)" );
+        expect( show( await done ) ).toBe( "(con bool True)" );
         // the engine passed its check, then verified the signature
         expect( c.importedKeys ).toContain( signed.pk );
     });

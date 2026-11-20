@@ -1,16 +1,16 @@
+/**
+ * The index of the lowest bit that is set, -1 if none is. Bit 0 is the least significant
+ * bit of the last byte, and indexes grow towards the first byte.
+ */
 export function findFirstSetBit( bytes: Uint8Array ): number
 {
-    let n = 0;
-    for(
-        let i = bytes.length - 1;
-        i >= 0 && bytes[i] === 0;
-        i--, n++
-    ) {}
-    if( n === bytes.length ) return -1; // all bits are 0
-    const inByte = findFirstSetBitInByte( bytes[n] );
-    if( inByte === -1 ) return -1; // all bits are 0
-    n--;
-    return n * 8 + inByte;
+    const last = bytes.length - 1;
+    for( let i = last; i >= 0; i-- )
+    {
+        const byte = bytes[i];
+        if( byte !== 0 ) return ( last - i ) * 8 + findFirstSetBitInByte( byte );
+    }
+    return -1; // all bits are 0
 }
 
 function findFirstSetBitInByte( byte: number ): number

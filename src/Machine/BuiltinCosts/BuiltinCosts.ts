@@ -1,5 +1,5 @@
 import { UPLCBuiltinTag } from "@harmoniclabs/uplc";
-import { ConstMinOrQuadratic2InXY, ConstYOrLinearZ, CostFunction, ExpModCost, FixedCost, Linear1, Linear2InBothAdd, Linear2InBothMult, Linear2InBothSub, Linear2InMax, Linear2InMin, Linear2InX, Linear2InY, Linear3InMaxYZ, Linear3InX, Linear3InY, Linear3InYAndZ, Linear3InZ, LinearOnEqualXY, OneArg, Quadratic1, Quadratic2InY, Quadratic3InZ, SixArgs, ThreeArgs, TwoArgs, WithInteraction, XGtEqOrConst, YGtEqOrConst } from "./costFunctions";
+import { ConstMinOrQuadratic2InXY, Quadratic2InMaxMin, ConstYOrLinearZ, CostFunction, ExpModCost, FixedCost, Linear1, Linear2InBothAdd, Linear2InBothMult, Linear2InBothSub, Linear2InMax, Linear2InMin, Linear2InX, Linear2InY, Linear3InMaxYZ, Linear3InX, Linear3InY, Linear3InYAndZ, Linear3InZ, LinearOnEqualXY, OneArg, Quadratic1, Quadratic2InY, Quadratic3InZ, SixArgs, ThreeArgs, TwoArgs, WithInteraction, XGtEqOrConst, YGtEqOrConst } from "./costFunctions";
 import { AnyV1CostModel, costModelV1ToFakeV2, AnyV2CostModel, toCostModelV2, isCostModelsV2, costModelV2ToFakeV3, costModelV1ToFakeV3, AnyV3CostModel, toCostModelV3, isCostModelsV3, AnyV4CostModel, isCostModelsV4, toCostModelV4, costModelV3ToFakeV4, CostModelPlutusV4 } from "@harmoniclabs/cardano-costmodels-ts";
 import { defineReadOnlyProperty, hasOwn } from "@harmoniclabs/obj-utils";
 import { assert } from "../../utils/assert";
@@ -123,19 +123,38 @@ type ToBuiltinCache = {
     [x in UPLCBuiltinTag]: BuiltinCostsOf<x>;
 };
 
-export function costModelV1ToBuiltinCosts( costmdls: AnyV1CostModel ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
+/**
+ * The protocol version (major) whose cost functions a machine has when it is told no other:
+ * the one of the networks the default parameters were read from.
+ *
+ * A cost model is numbers; what is computed FROM them is fixed by the protocol version. At
+ * version 11 `divideInteger` and `modInteger` stopped costing a constant when their first
+ * argument is the smaller one (see `Quadratic2InMaxMin`); the parameters did not change shape.
+ */
+export const LATEST_PROTOCOL_VERSION = 11;
+
+export function costModelV1ToBuiltinCosts( costmdls: AnyV1CostModel, majorProtocolVersion: number = LATEST_PROTOCOL_VERSION ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
 {
-    return costModelV3ToBuiltinCosts( costModelV1ToFakeV3({ ...costmdls }) )
+    return costModelV3ToBuiltinCosts( costModelV1ToFakeV3({ ...costmdls }), true, majorProtocolVersion )
 }
 
-export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
+export function costModelV2ToBuiltinCosts( costmdls: AnyV2CostModel, majorProtocolVersion: number = LATEST_PROTOCOL_VERSION ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
 {
-    return costModelV3ToBuiltinCosts( costModelV2ToFakeV3({ ...costmdls }) )
+    return costModelV3ToBuiltinCosts( costModelV2ToFakeV3({ ...costmdls }), true, majorProtocolVersion )
 }
 
-export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
+/**
+ * @param beforeV3 the parameters are the ones of a Plutus V1 or V2 cost model, put under the
+ * names of the V3 one: two builtins are then costed with the shape they had before V3
+ * (`multiplyInteger` on the sum of the two sizes, where V3 takes their product;
+ * `verifyEd25519Signature` on the size of the signature, where V3 takes the message's)
+ * @param majorProtocolVersion the protocol version the costs are for (see `LATEST_PROTOCOL_VERSION`)
+ */
+export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel, beforeV3: boolean = false, majorProtocolVersion: number = LATEST_PROTOCOL_VERSION ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
 {
     const costs = { ...toCostModelV3( costmdls ) };
+    /** from version 11: `divideInteger` and `modInteger` on the larger and the smaller size, with no constant */
+    const bothSidesOfTheDiagonal = !( majorProtocolVersion < 11 );
     assert(
         isCostModelsV3( costs ),
         "invalid cost models passed"
@@ -188,7 +207,8 @@ export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel ): <Tag exte
             break;
             case UPLCBuiltinTag.multiplyInteger:
                 return readonly({
-                    cpu: new Linear2InBothAdd(
+                    // V3: intercept + slope * ( x * y ); before: intercept + slope * ( x + y )
+                    cpu: new ( beforeV3 ? Linear2InBothAdd : Linear2InBothMult )(
                         BigInt( costs["multiplyInteger-cpu-arguments-intercept"] ),
                         BigInt( costs["multiplyInteger-cpu-arguments-slope"] ),
                     ),
@@ -200,7 +220,17 @@ export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel ): <Tag exte
             break;
             case UPLCBuiltinTag.divideInteger:
                 return readonly({
-                    cpu: new ConstMinOrQuadratic2InXY(
+                    cpu: bothSidesOfTheDiagonal
+                    ? new Quadratic2InMaxMin(
+                        BigInt( costs["divideInteger-cpu-arguments-model-arguments-minimum"] ),
+                        BigInt( costs["divideInteger-cpu-arguments-model-arguments-c00"] ),
+                        BigInt( costs["divideInteger-cpu-arguments-model-arguments-c01"] ),
+                        BigInt( costs["divideInteger-cpu-arguments-model-arguments-c02"] ),
+                        BigInt( costs["divideInteger-cpu-arguments-model-arguments-c10"] ),
+                        BigInt( costs["divideInteger-cpu-arguments-model-arguments-c11"] ),
+                        BigInt( costs["divideInteger-cpu-arguments-model-arguments-c20"] ),
+                    )
+                    : new ConstMinOrQuadratic2InXY(
                         BigInt( costs["divideInteger-cpu-arguments-constant"] ),
                         BigInt( costs["divideInteger-cpu-arguments-model-arguments-minimum"] ),
                         BigInt( costs["divideInteger-cpu-arguments-model-arguments-c00"] ),
@@ -256,7 +286,17 @@ export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel ): <Tag exte
             break;
             case UPLCBuiltinTag.modInteger:
                 return readonly({
-                    cpu: new ConstMinOrQuadratic2InXY(
+                    cpu: bothSidesOfTheDiagonal
+                    ? new Quadratic2InMaxMin(
+                        BigInt( costs["modInteger-cpu-arguments-model-arguments-minimum"] ),
+                        BigInt( costs["modInteger-cpu-arguments-model-arguments-c00"] ),
+                        BigInt( costs["modInteger-cpu-arguments-model-arguments-c01"] ),
+                        BigInt( costs["modInteger-cpu-arguments-model-arguments-c02"] ),
+                        BigInt( costs["modInteger-cpu-arguments-model-arguments-c10"] ),
+                        BigInt( costs["modInteger-cpu-arguments-model-arguments-c11"] ),
+                        BigInt( costs["modInteger-cpu-arguments-model-arguments-c20"] ),
+                    )
+                    : new ConstMinOrQuadratic2InXY(
                         BigInt( costs["modInteger-cpu-arguments-constant"] ),
                         BigInt( costs["modInteger-cpu-arguments-model-arguments-minimum"] ),
                         BigInt( costs["modInteger-cpu-arguments-model-arguments-c00"] ),
@@ -404,7 +444,8 @@ export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel ): <Tag exte
             break;
             case UPLCBuiltinTag.verifyEd25519Signature:
                 return readonly({
-                    cpu: new Linear3InZ(
+                    // ( key, message, signature ): V3 costs the message; before, the signature
+                    cpu: new ( beforeV3 ? Linear3InZ : Linear3InY )(
                         BigInt( costs["verifyEd25519Signature-cpu-arguments-intercept"] ),
                         BigInt( costs["verifyEd25519Signature-cpu-arguments-slope"] )
                     ),
@@ -938,7 +979,8 @@ export function costModelV3ToBuiltinCosts( costmdls: AnyV3CostModel ): <Tag exte
     }) as <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>;
 }
 
-export function costModelV4ToBuiltinCosts( costmdls: AnyV4CostModel ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
+/** @param beforeV3 see `costModelV3ToBuiltinCosts`; @param majorProtocolVersion likewise */
+export function costModelV4ToBuiltinCosts( costmdls: AnyV4CostModel, beforeV3: boolean = false, majorProtocolVersion: number = LATEST_PROTOCOL_VERSION ): <Tag extends UPLCBuiltinTag>( tag: Tag ) => BuiltinCostsOf<Tag>
 {
     const costs = { ...toCostModelV4( costmdls ) } as CostModelPlutusV4;
     assert(
@@ -946,7 +988,7 @@ export function costModelV4ToBuiltinCosts( costmdls: AnyV4CostModel ): <Tag exte
         "invalid cost models passed"
     );
 
-    const v3Handler = costModelV3ToBuiltinCosts( costs );
+    const v3Handler = costModelV3ToBuiltinCosts( costs, beforeV3, majorProtocolVersion );
     const cache: ToBuiltinCache = {} as any;
 
     return (( tag: UPLCBuiltinTag ) => {
